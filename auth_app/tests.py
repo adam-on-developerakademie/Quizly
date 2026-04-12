@@ -86,12 +86,13 @@ class AuthCookieFlowTests(APITestCase):
 				"username": "new_user",
 				"email": "new_user@example.com",
 				"password": "AnotherPass123!",
-				"repeated_password": "AnotherPass123!",
+				"confirmed_password": "AnotherPass123!",
 			},
 			format="json",
 		)
 
-		self.assertEqual(registration_response.status_code, status.HTTP_200_OK)
+		self.assertEqual(registration_response.status_code, status.HTTP_201_CREATED)
+		self.assertEqual(registration_response.data["detail"], "User created successfully!")
 		self.assertTrue(User.objects.filter(email="new_user@example.com").exists())
 
 	def test_registration_is_blocked_while_authenticated(self):
@@ -104,7 +105,7 @@ class AuthCookieFlowTests(APITestCase):
 				"username": "blocked_user",
 				"email": "blocked_user@example.com",
 				"password": "AnotherPass123!",
-				"repeated_password": "AnotherPass123!",
+				"confirmed_password": "AnotherPass123!",
 			},
 			format="json",
 		)
