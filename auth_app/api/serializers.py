@@ -41,32 +41,32 @@ from django.contrib.auth import get_user_model
 
 User = get_user_model()
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
-    email = serializers.EmailField()
+    email = serializers.EmailField(required=False, allow_blank=True)
+    username = serializers.CharField(required=False, allow_blank=True)
     password = serializers.CharField(write_only=True)
-    
-    # Wenn man E-Mail und Passwort anstelle von Benutzername und Passwort verwenden möchte,
-    # muss man den username aus dem Standard Serializer entfernen :
-    # E
-    def __init__(self, *args, **kwargs):                                #E
-        super().__init__(*args, **kwargs)                               #E
-        # Standardmäßige 'username'-Feld entfernen                      #E                        
-        if 'username' in self.fields:                                   #E
-            self.fields.pop('username')                                 #E pop entfernt das standardmäßige 'username'-Feld, da wir stattdessen die E-Mail verwenden wollen.    
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        username_field = self.username_field
+        if username_field in self.fields:
+            self.fields[username_field].required = False
+            self.fields[username_field].allow_blank = True
 
  
     def validate(self, attrs):
-        # Hier können Sie die Validierung der Anmeldedaten durchführen
-        # und zusätzliche Informationen zurückgeben, wenn ein Token erstellt wird.
         email = attrs.get('email')
+        username = attrs.get('username')
         password = attrs.get('password')
-        
-        try:
-            user = User.objects.get(email=email)
-        except User.DoesNotExist:
-            raise serializers.ValidationError('ungültige Anmeldedaten')
-        
-        if not user.check_password(password):
-            raise serializers.ValidationError('ungültige Anmeldedaten')
-        
-        data = super().validate({"username": user.username, "password": password})
+
+        if not email and not username:
+            raise serializers.ValidationError('username oder email ist erforderlich')
+
+        if email and not username:
+            try:
+                user = User.objects.get(email=email)
+                username = user.username
+            except User.DoesNotExist:
+                raise serializers.ValidationError('ungültige Anmeldedaten')
+
+        data = super().validate({"username": username, "password": password})
         return data

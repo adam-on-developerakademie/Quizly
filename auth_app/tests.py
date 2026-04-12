@@ -17,8 +17,15 @@ class AuthCookieFlowTests(APITestCase):
 
 	def _login(self):
 		return self.client.post(
-			reverse("token_obtain_pair"),
+			reverse("login"),
 			{"email": self.user.email, "password": self.password},
+			format="json",
+		)
+
+	def _login_with_username(self):
+		return self.client.post(
+			reverse("login"),
+			{"username": self.user.username, "password": self.password},
 			format="json",
 		)
 
@@ -77,6 +84,12 @@ class AuthCookieFlowTests(APITestCase):
 		refresh_response = self.client.post(reverse("token_refresh"))
 		self.assertEqual(refresh_response.status_code, status.HTTP_400_BAD_REQUEST)
 		self.assertIn("error", refresh_response.data)
+
+	def test_login_without_email_field_works_with_username(self):
+		login_response = self._login_with_username()
+		self.assertEqual(login_response.status_code, status.HTTP_200_OK)
+		self.assertIn("access_token", login_response.cookies)
+		self.assertIn("refresh_token", login_response.cookies)
 
 	def test_registration_with_invalid_cookie_still_works(self):
 		self.client.cookies["access_token"] = "tampered.invalid.jwt"
