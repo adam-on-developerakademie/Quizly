@@ -23,6 +23,46 @@ def _exp_to_datetime(exp):
     return datetime.fromtimestamp(int(exp), tz=timezone.utc)
 
 
+def _timestamp_to_datetime(value):
+    if value is None:
+        return None
+    return datetime.fromtimestamp(int(value), tz=timezone.utc)
+
+
+def _token_time_info(raw_token, token_class):
+    if not raw_token:
+        return {
+            "issued_at": None,
+            "expires_at": None,
+            "remaining_seconds": None,
+            "is_valid": False,
+        }
+
+    try:
+        token = token_class(raw_token)
+    except TokenError:
+        return {
+            "issued_at": None,
+            "expires_at": None,
+            "remaining_seconds": None,
+            "is_valid": False,
+        }
+
+    issued_at_dt = _timestamp_to_datetime(token.get("iat"))
+    expires_at_dt = _timestamp_to_datetime(token.get("exp"))
+    now = datetime.now(timezone.utc)
+    remaining_seconds = None
+    if expires_at_dt is not None:
+        remaining_seconds = max(int((expires_at_dt - now).total_seconds()), 0)
+
+    return {
+        "issued_at": issued_at_dt.isoformat() if issued_at_dt else None,
+        "expires_at": expires_at_dt.isoformat() if expires_at_dt else None,
+        "remaining_seconds": remaining_seconds,
+        "is_valid": True,
+    }
+
+
 def _revoke_token(raw_token, token_class, source_ip):
     if not raw_token:
         return None
@@ -54,6 +94,12 @@ class RegistrationView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
+        if request.user.is_authenticated:
+            return Response(
+                {"error": "Authenticated users cannot create a new account."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
         serializer = RegistrationSerializer(data=request.data)
 
         data = {}
@@ -73,11 +119,16 @@ class HelloWorld(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        access_token = request.COOKIES.get("access_token")
+        refresh_token = request.COOKIES.get("refresh_token")
+
         return Response(
             {
                 "message": "Hello {}".format(request.user.username),
                 "email": request.user.email,
                 "user_id": request.user.pk,
+                "access_token_info": _token_time_info(access_token, AccessToken),
+                "refresh_token_info": _token_time_info(refresh_token, RefreshToken),
             }
         )
 

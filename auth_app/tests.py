@@ -30,6 +30,14 @@ class AuthCookieFlowTests(APITestCase):
 
 		hello_response = self.client.get(reverse("hello"))
 		self.assertEqual(hello_response.status_code, status.HTTP_200_OK)
+		self.assertIn("access_token_info", hello_response.data)
+		self.assertIn("refresh_token_info", hello_response.data)
+		self.assertIsNotNone(hello_response.data["access_token_info"]["issued_at"])
+		self.assertIsNotNone(hello_response.data["access_token_info"]["expires_at"])
+		self.assertGreaterEqual(hello_response.data["access_token_info"]["remaining_seconds"], 0)
+		self.assertIsNotNone(hello_response.data["refresh_token_info"]["issued_at"])
+		self.assertIsNotNone(hello_response.data["refresh_token_info"]["expires_at"])
+		self.assertGreaterEqual(hello_response.data["refresh_token_info"]["remaining_seconds"], 0)
 
 		logout_response = self.client.post(reverse("logout"))
 		self.assertEqual(logout_response.status_code, status.HTTP_200_OK)
@@ -69,3 +77,37 @@ class AuthCookieFlowTests(APITestCase):
 		refresh_response = self.client.post(reverse("token_refresh"))
 		self.assertEqual(refresh_response.status_code, status.HTTP_400_BAD_REQUEST)
 		self.assertIn("error", refresh_response.data)
+
+	def test_registration_with_invalid_cookie_still_works(self):
+		self.client.cookies["access_token"] = "tampered.invalid.jwt"
+		registration_response = self.client.post(
+			reverse("registration"),
+			{
+				"username": "new_user",
+				"email": "new_user@example.com",
+				"password": "AnotherPass123!",
+				"repeated_password": "AnotherPass123!",
+			},
+			format="json",
+		)
+
+		self.assertEqual(registration_response.status_code, status.HTTP_200_OK)
+		self.assertTrue(User.objects.filter(email="new_user@example.com").exists())
+
+	def test_registration_is_blocked_while_authenticated(self):
+		login_response = self._login()
+		self.assertEqual(login_response.status_code, status.HTTP_200_OK)
+
+		registration_response = self.client.post(
+			reverse("registration"),
+			{
+				"username": "blocked_user",
+				"email": "blocked_user@example.com",
+				"password": "AnotherPass123!",
+				"repeated_password": "AnotherPass123!",
+			},
+			format="json",
+		)
+
+		self.assertEqual(registration_response.status_code, status.HTTP_403_FORBIDDEN)
+		self.assertFalse(User.objects.filter(email="blocked_user@example.com").exists())

@@ -1,4 +1,5 @@
 from rest_framework_simplejwt.authentication import JWTAuthentication
+from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 from auth_app.models import RevokedToken
 
 
@@ -15,7 +16,12 @@ class CookieJWTAuthentication(JWTAuthentication):
         if raw_token is None:
             return None
 
-        validated_token = self.get_validated_token(raw_token)
+        try:
+            validated_token = self.get_validated_token(raw_token)
+        except (TokenError, InvalidToken):
+            # Invalid or expired cookie tokens should behave like anonymous requests.
+            return None
+
         token_jti = validated_token.get("jti")
         if token_jti and RevokedToken.objects.filter(jti=token_jti).exists():
             return None
