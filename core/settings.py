@@ -50,6 +50,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "dotenv",
     "auth_app",
+    "quiz_app",
 ]
 
 
