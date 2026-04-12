@@ -32,6 +32,10 @@ class AuthCookieFlowTests(APITestCase):
 	def test_login_hello_logout_then_hello_is_forbidden(self):
 		login_response = self._login()
 		self.assertEqual(login_response.status_code, status.HTTP_200_OK)
+		self.assertEqual(login_response.data["detail"], "Login successfully!")
+		self.assertEqual(login_response.data["user"]["id"], self.user.pk)
+		self.assertEqual(login_response.data["user"]["username"], self.user.username)
+		self.assertEqual(login_response.data["user"]["email"], self.user.email)
 		self.assertIn("access_token", login_response.cookies)
 		self.assertIn("refresh_token", login_response.cookies)
 
@@ -48,6 +52,10 @@ class AuthCookieFlowTests(APITestCase):
 
 		logout_response = self.client.post(reverse("logout"))
 		self.assertEqual(logout_response.status_code, status.HTTP_200_OK)
+		self.assertEqual(
+			logout_response.data["detail"],
+			"Log-Out successfully! All Tokens will be deleted. Refresh token is now invalid.",
+		)
 		self.assertIn("access_token", logout_response.cookies)
 		self.assertIn("refresh_token", logout_response.cookies)
 		self.assertEqual(logout_response.cookies["access_token"]["max-age"], 0)
@@ -69,10 +77,23 @@ class AuthCookieFlowTests(APITestCase):
 
 		logout_response = self.client.post(reverse("logout"))
 		self.assertEqual(logout_response.status_code, status.HTTP_200_OK)
+		self.assertEqual(
+			logout_response.data["detail"],
+			"Log-Out successfully! All Tokens will be deleted. Refresh token is now invalid.",
+		)
 
 		self.client.cookies["refresh_token"] = refresh_token
 		refresh_after_logout = self.client.post(reverse("token_refresh"))
 		self.assertEqual(refresh_after_logout.status_code, status.HTTP_400_BAD_REQUEST)
+
+	def test_refresh_success_response_returns_detail(self):
+		login_response = self._login()
+		self.assertEqual(login_response.status_code, status.HTTP_200_OK)
+
+		refresh_response = self.client.post(reverse("token_refresh"))
+		self.assertEqual(refresh_response.status_code, status.HTTP_200_OK)
+		self.assertEqual(refresh_response.data["detail"], "Token refreshed")
+		self.assertIn("access_token", refresh_response.cookies)
 
 	def test_tampered_access_cookie_is_rejected(self):
 		self.client.cookies["access_token"] = "tampered.invalid.jwt"
@@ -88,6 +109,9 @@ class AuthCookieFlowTests(APITestCase):
 	def test_login_without_email_field_works_with_username(self):
 		login_response = self._login_with_username()
 		self.assertEqual(login_response.status_code, status.HTTP_200_OK)
+		self.assertEqual(login_response.data["detail"], "Login successfully!")
+		self.assertEqual(login_response.data["user"]["username"], self.user.username)
+		self.assertEqual(login_response.data["user"]["email"], self.user.email)
 		self.assertIn("access_token", login_response.cookies)
 		self.assertIn("refresh_token", login_response.cookies)
 

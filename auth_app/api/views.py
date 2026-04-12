@@ -140,7 +140,17 @@ class CookieTokenObtainPairView(TokenObtainPairView):
         serialiser = self.get_serializer(data=request.data)
         serialiser.is_valid(raise_exception=True)
 
-        response = Response({"message": "Login mit email erfolgreich"})
+        user = serialiser.user
+        response = Response(
+            {
+                "detail": "Login successfully!",
+                "user": {
+                    "id": user.pk,
+                    "username": user.username,
+                    "email": user.email,
+                },
+            }
+        )
         refresh = serialiser.validated_data["refresh"]
         access = serialiser.validated_data["access"]
 
@@ -160,7 +170,6 @@ class CookieTokenObtainPairView(TokenObtainPairView):
             secure=cookie_secure,
             samesite="Lax",
         )
-        response.data = {"message": "Tokens set in cookies"}
 
         return response
 
@@ -194,7 +203,7 @@ class CookieTokenRefreshView(TokenRefreshView):
 
         # Setzen Sie das neue Access-Token als HttpOnly-Cookie
         cookie_secure = settings.JWT_COOKIE_SECURE
-        response = Response({"message": "Access token refreshed and set in cookie"})
+        response = Response({"detail": "Token refreshed"})
         response.set_cookie(
             key="access_token",
             value=access,
@@ -231,7 +240,12 @@ class LogoutView(APIView):
             source_ip,
         )
 
-        response = Response({"message": "Logged out successfully"}, status=status.HTTP_200_OK)
+        response = Response(
+            {
+                "detail": "Log-Out successfully! All Tokens will be deleted. Refresh token is now invalid."
+            },
+            status=status.HTTP_200_OK,
+        )
         response.set_cookie(
             key="access_token",
             value="",
