@@ -3,7 +3,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
 from rest_framework.response import Response
 
-from .serializers import QuizCreateSerializer, QuizListSerializer, QuizSerializer
+from .serializers import QuizCreateSerializer, QuizListSerializer, QuizPatchSerializer, QuizSerializer
 from .services import AudioDownloadError
 from .transcription import TranscriptionError
 from quiz_app.models import Quiz
@@ -65,6 +65,45 @@ class QuizDetailView(APIView):
                     {"detail": "Access denied"},
                     status=status.HTTP_403_FORBIDDEN,
                 )
+
+            return Response(QuizListSerializer(quiz).data, status=status.HTTP_200_OK)
+        except Exception:
+            return Response(
+                {"detail": "Internal server error"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+    def patch(self, request, id):
+        try:
+            quiz = Quiz.objects.prefetch_related("questions").filter(id=id).first()
+            if quiz is None:
+                return Response(
+                    {"detail": "Quiz not found"},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            if quiz.owner_id != request.user.id:
+                return Response(
+                    {"detail": "Access denied"},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+
+            allowed_fields = {"title", "description"}
+            provided_fields = set(request.data.keys()) if hasattr(request.data, "keys") else set()
+            unsupported_fields = sorted(provided_fields - allowed_fields)
+            if unsupported_fields:
+                return Response(
+                    {"detail": "Only title and description can be updated"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            serializer = QuizPatchSerializer(data=request.data, partial=True)
+            if not serializer.is_valid():
+                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+            for field, value in serializer.validated_data.items():
+                setattr(quiz, field, value)
+            quiz.save()
 
             return Response(QuizListSerializer(quiz).data, status=status.HTTP_200_OK)
         except Exception:

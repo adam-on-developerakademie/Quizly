@@ -281,6 +281,89 @@ class QuizCreateApiTests(APITestCase):
 		self.assertIn("question_options", response.data["questions"][0])
 		self.assertIn("answer", response.data["questions"][0])
 
+	def test_patch_detail_requires_authentication(self):
+		quiz = Quiz.objects.create(
+			owner=self.user,
+			title="Detail Quiz",
+			description="Detail Description",
+			video_url="https://www.youtube.com/watch?v=detail1",
+		)
+		response = self.client.patch(self.detail_url(quiz.id), {"title": "New"}, format="json")
+		self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+	def test_patch_detail_returns_404_when_quiz_not_found(self):
+		self.client.force_authenticate(user=self.user)
+		response = self.client.patch(self.detail_url(999999), {"title": "New"}, format="json")
+		self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+	def test_patch_detail_returns_403_for_foreign_quiz(self):
+		quiz = Quiz.objects.create(
+			owner=self.other_user,
+			title="Other Quiz",
+			description="Other Description",
+			video_url="https://www.youtube.com/watch?v=other1",
+		)
+		self.client.force_authenticate(user=self.user)
+		response = self.client.patch(self.detail_url(quiz.id), {"title": "New"}, format="json")
+		self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+	def test_patch_detail_returns_400_for_invalid_payload(self):
+		quiz = Quiz.objects.create(
+			owner=self.user,
+			title="Detail Quiz",
+			description="Detail Description",
+			video_url="https://www.youtube.com/watch?v=detail1",
+		)
+		self.client.force_authenticate(user=self.user)
+		response = self.client.patch(self.detail_url(quiz.id), {}, format="json")
+		self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+	def test_patch_detail_returns_400_for_unsupported_fields(self):
+		quiz = Quiz.objects.create(
+			owner=self.user,
+			title="Detail Quiz",
+			description="Detail Description",
+			video_url="https://www.youtube.com/watch?v=detail1",
+		)
+		self.client.force_authenticate(user=self.user)
+		response = self.client.patch(self.detail_url(quiz.id), {"video_url": "https://x"}, format="json")
+		self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+		self.assertEqual(response.data["detail"], "Only title and description can be updated")
+
+	def test_patch_detail_updates_selected_fields(self):
+		quiz = Quiz.objects.create(
+			owner=self.user,
+			title="Original Title",
+			description="Original Description",
+			video_url="https://www.youtube.com/watch?v=detail1",
+		)
+		quiz.questions.create(
+			question_title="Detail Question",
+			question_options=["A", "B", "C", "D"],
+			answer="A",
+		)
+
+		self.client.force_authenticate(user=self.user)
+		response = self.client.patch(
+			self.detail_url(quiz.id),
+			{"title": "Partially Updated Title", "description": "Partially Updated Description"},
+			format="json",
+		)
+
+		self.assertEqual(response.status_code, status.HTTP_200_OK)
+		self.assertEqual(response.data["id"], quiz.id)
+		self.assertEqual(response.data["title"], "Partially Updated Title")
+		self.assertEqual(response.data["description"], "Partially Updated Description")
+		self.assertEqual(response.data["video_url"], "https://www.youtube.com/watch?v=detail1")
+		self.assertIn("created_at", response.data)
+		self.assertIn("updated_at", response.data)
+		self.assertEqual(len(response.data["questions"]), 1)
+		self.assertEqual(response.data["questions"][0]["question_title"], "Detail Question")
+
+		quiz.refresh_from_db()
+		self.assertEqual(quiz.title, "Partially Updated Title")
+		self.assertEqual(quiz.description, "Partially Updated Description")
+
 	def test_requires_authentication(self):
 		response = self.client.post(
 			self.url,

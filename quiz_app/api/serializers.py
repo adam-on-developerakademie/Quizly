@@ -177,3 +177,13 @@ class QuizCreateSerializer(serializers.Serializer):
             )
 
         return quiz
+
+
+class QuizPatchSerializer(serializers.Serializer):
+    title = serializers.CharField(max_length=255, required=False)
+    description = serializers.CharField(required=False, allow_blank=True)
+
+    def validate(self, attrs):
+        if not attrs:
+            raise serializers.ValidationError("No fields provided for update")
+        return attrs
