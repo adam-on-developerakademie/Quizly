@@ -111,3 +111,26 @@ class QuizDetailView(APIView):
                 {"detail": "Internal server error"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+
+    def delete(self, request, id):
+        try:
+            quiz = Quiz.objects.filter(id=id).first()
+            if quiz is None:
+                return Response(
+                    {"detail": "Quiz not found"},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            if quiz.owner_id != request.user.id:
+                return Response(
+                    {"detail": "Access denied"},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+
+            quiz.delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        except Exception:
+            return Response(
+                {"detail": "Internal server error"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )

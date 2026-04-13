@@ -364,6 +364,51 @@ class QuizCreateApiTests(APITestCase):
 		self.assertEqual(quiz.title, "Partially Updated Title")
 		self.assertEqual(quiz.description, "Partially Updated Description")
 
+	def test_delete_detail_requires_authentication(self):
+		quiz = Quiz.objects.create(
+			owner=self.user,
+			title="Delete Quiz",
+			description="Delete Description",
+			video_url="https://www.youtube.com/watch?v=delete1",
+		)
+		response = self.client.delete(self.detail_url(quiz.id))
+		self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+	def test_delete_detail_returns_404_when_quiz_not_found(self):
+		self.client.force_authenticate(user=self.user)
+		response = self.client.delete(self.detail_url(999999))
+		self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+	def test_delete_detail_returns_403_for_foreign_quiz(self):
+		quiz = Quiz.objects.create(
+			owner=self.other_user,
+			title="Other Quiz",
+			description="Other Description",
+			video_url="https://www.youtube.com/watch?v=other1",
+		)
+		self.client.force_authenticate(user=self.user)
+		response = self.client.delete(self.detail_url(quiz.id))
+		self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+	def test_delete_detail_removes_quiz_and_questions(self):
+		quiz = Quiz.objects.create(
+			owner=self.user,
+			title="Delete Quiz",
+			description="Delete Description",
+			video_url="https://www.youtube.com/watch?v=delete1",
+		)
+		quiz.questions.create(
+			question_title="Question to delete",
+			question_options=["A", "B", "C", "D"],
+			answer="A",
+		)
+
+		self.client.force_authenticate(user=self.user)
+		response = self.client.delete(self.detail_url(quiz.id))
+
+		self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+		self.assertFalse(Quiz.objects.filter(id=quiz.id).exists())
+
 	def test_requires_authentication(self):
 		response = self.client.post(
 			self.url,
