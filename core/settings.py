@@ -138,6 +138,9 @@ TIME_ZONE = os.getenv("TIME_ZONE", "UTC")
 
 
 STATIC_URL = os.getenv("STATIC_URL", "static/")
+MEDIA_URL = os.getenv("MEDIA_URL", "/media/")
+MEDIA_ROOT = BASE_DIR / os.getenv("MEDIA_ROOT", "media")
+SERVE_MEDIA = os.getenv("SERVE_MEDIA", str(DEBUG)).lower() == "true"
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
