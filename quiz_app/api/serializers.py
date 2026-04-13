@@ -64,17 +64,37 @@ class QuizCreateSerializer(serializers.Serializer):
     def create(self, validated_data):
         video_url = validated_data["url"]
         audio_data = download_youtube_audio(video_url)
-        quiz = Quiz.objects.create(
-            title=audio_data["title"],
-            description=audio_data["description"] or "Auto-generated quiz based on the provided YouTube URL.",
-            video_url=audio_data["webpage_url"],
-            youtube_video_id=audio_data["video_id"],
-            youtube_channel=audio_data["channel"],
-            youtube_duration_seconds=audio_data["duration_seconds"],
-            audio_file=audio_data["audio_file_name"],
-            audio_filename=audio_data["audio_filename"],
-            audio_filesize_bytes=audio_data["audio_filesize_bytes"],
-        )
+        existing_quiz = Quiz.objects.filter(youtube_video_id=audio_data["video_id"]).first()
+
+        if existing_quiz is None:
+            existing_quiz = Quiz.objects.filter(video_url=audio_data["webpage_url"]).first()
+
+        if existing_quiz is None:
+            quiz = Quiz.objects.create(
+                title=audio_data["title"],
+                description=audio_data["description"] or "Auto-generated quiz based on the provided YouTube URL.",
+                video_url=audio_data["webpage_url"],
+                youtube_video_id=audio_data["video_id"],
+                youtube_channel=audio_data["channel"],
+                youtube_duration_seconds=audio_data["duration_seconds"],
+                audio_file=audio_data["audio_file_name"],
+                audio_filename=audio_data["audio_filename"],
+                audio_filesize_bytes=audio_data["audio_filesize_bytes"],
+            )
+        else:
+            quiz = existing_quiz
+            quiz.title = audio_data["title"]
+            quiz.description = audio_data["description"] or "Auto-generated quiz based on the provided YouTube URL."
+            quiz.video_url = audio_data["webpage_url"]
+            quiz.youtube_video_id = audio_data["video_id"]
+            quiz.youtube_channel = audio_data["channel"]
+            quiz.youtube_duration_seconds = audio_data["duration_seconds"]
+            quiz.audio_file = audio_data["audio_file_name"]
+            quiz.audio_filename = audio_data["audio_filename"]
+            quiz.audio_filesize_bytes = audio_data["audio_filesize_bytes"]
+            quiz.save()
+
+        quiz.questions.all().delete()
 
         Question.objects.create(
             quiz=quiz,

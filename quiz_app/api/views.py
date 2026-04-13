@@ -4,6 +4,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 
 from .serializers import QuizCreateSerializer, QuizSerializer
+from .services import AudioDownloadError
 
 
 class QuizCreateView(APIView):
@@ -16,6 +17,11 @@ class QuizCreateView(APIView):
 
         try:
             quiz = serializer.save()
+        except AudioDownloadError as exc:
+            return Response(
+                {"detail": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         except Exception:
             return Response(
                 {"detail": "Internal server error"},

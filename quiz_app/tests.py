@@ -4,6 +4,7 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 from unittest.mock import patch
 
+from quiz_app.api.services import AudioDownloadError
 from quiz_app.models import Quiz
 
 
@@ -103,3 +104,66 @@ class QuizCreateApiTests(APITestCase):
 
 		self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 		mock_download.assert_called_once_with("https://www.youtube.com/watch?v=LWrm9PvKYEY")
+
+	def test_repeated_same_video_updates_existing_quiz(self):
+		self.client.force_authenticate(user=self.user)
+		with patch("quiz_app.api.serializers.download_youtube_audio") as mock_download:
+			mock_download.side_effect = [
+				{
+					"video_id": "dup123",
+					"title": "Initial Title",
+					"description": "Initial Description",
+					"channel": "Initial Channel",
+					"duration_seconds": 111,
+					"webpage_url": "https://www.youtube.com/watch?v=dup123",
+					"audio_file_name": "quiz_audio/dup123.mp3",
+					"audio_filename": "dup123.mp3",
+					"audio_filesize_bytes": 1000,
+				},
+				{
+					"video_id": "dup123",
+					"title": "Updated Title",
+					"description": "Updated Description",
+					"channel": "Updated Channel",
+					"duration_seconds": 222,
+					"webpage_url": "https://www.youtube.com/watch?v=dup123",
+					"audio_file_name": "quiz_audio/dup123.mp3",
+					"audio_filename": "dup123.mp3",
+					"audio_filesize_bytes": 2000,
+				},
+			]
+
+			first = self.client.post(
+				self.url,
+				{"url": "https://www.youtube.com/watch?v=dup123"},
+				format="json",
+			)
+			second = self.client.post(
+				self.url,
+				{"url": "https://www.youtube.com/watch?v=dup123"},
+				format="json",
+			)
+
+		self.assertEqual(first.status_code, status.HTTP_201_CREATED)
+		self.assertEqual(second.status_code, status.HTTP_201_CREATED)
+		self.assertEqual(Quiz.objects.count(), 1)
+		quiz = Quiz.objects.get()
+		self.assertEqual(quiz.title, "Updated Title")
+		self.assertEqual(quiz.description, "Updated Description")
+		self.assertEqual(quiz.youtube_channel, "Updated Channel")
+		self.assertEqual(quiz.youtube_duration_seconds, 222)
+		self.assertEqual(quiz.audio_filesize_bytes, 2000)
+		self.assertEqual(quiz.questions.count(), 1)
+
+	def test_returns_400_when_audio_download_fails(self):
+		self.client.force_authenticate(user=self.user)
+		with patch("quiz_app.api.serializers.download_youtube_audio") as mock_download:
+			mock_download.side_effect = AudioDownloadError("FFmpeg missing")
+			response = self.client.post(
+				self.url,
+				{"url": "https://www.youtube.com/watch?v=example"},
+				format="json",
+			)
+
+		self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+		self.assertEqual(response.data["detail"], "FFmpeg missing")
