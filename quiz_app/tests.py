@@ -1,16 +1,161 @@
 from django.contrib.auth.models import User
 from django.conf import settings
+from django.test import SimpleTestCase
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 from unittest.mock import patch
 from pathlib import Path
 import os
+import json
 
 from quiz_app.api.services import AudioDownloadError
+from quiz_app.api.quiz_generation import generate_quiz_from_transcript
 from quiz_app.api.transcription import TranscriptionError
 from quiz_app.api.transcription import transcribe_audio_file
 from quiz_app.models import Quiz
+
+
+class QuizGenerationTests(SimpleTestCase):
+	def _build_ten_questions(self):
+		questions = []
+		for i in range(1, 11):
+			questions.append(
+				{
+					"question_title": f"Question {i}",
+					"question_options": [f"A{i}", f"B{i}", f"C{i}", f"D{i}"],
+					"answer": f"A{i}",
+				}
+			)
+		return questions
+
+	def test_parses_markdown_fenced_json_response(self):
+		payload = {
+			"title": "AI Quiz Title",
+			"description": "Short summary",
+			"questions": self._build_ten_questions(),
+		}
+		fenced_text = "```json\n" + json.dumps(payload) + "\n```"
+
+		with patch.dict("os.environ", {"GOOGLE_API_KEY": "test-key"}, clear=False), patch(
+			"google.genai.Client"
+		) as mock_client:
+			mock_client.return_value.models.generate_content.return_value.text = fenced_text
+			result = generate_quiz_from_transcript("Transcript", "Topic", "Desc")
+
+		self.assertEqual(result["title"], "AI Quiz Title")
+		self.assertEqual(result["description"], "Short summary")
+		self.assertEqual(len(result["questions"]), 10)
+		self.assertEqual(result["ai_status"], "ok")
+
+	def test_returns_fallback_when_ai_returns_invalid_json(self):
+		with patch.dict("os.environ", {"GOOGLE_API_KEY": "test-key"}, clear=False), patch(
+			"google.genai.Client"
+		) as mock_client:
+			mock_client.return_value.models.generate_content.return_value.text = "```json\nnot valid json\n```"
+			result = generate_quiz_from_transcript("Transcript", "Topic", "Desc")
+
+		self.assertTrue(result["title"].startswith("Quiz: Topic"))
+		self.assertEqual(len(result["questions"]), 10)
+
+	def test_returns_fallback_when_less_than_ten_questions(self):
+		payload = {
+			"title": "Too Short Quiz",
+			"description": "Summary",
+			"questions": [
+				{
+					"question_title": "Only one",
+					"question_options": ["A", "B", "C", "D"],
+					"answer": "A",
+				}
+			],
+		}
+
+		with patch.dict("os.environ", {"GOOGLE_API_KEY": "test-key"}, clear=False), patch(
+			"google.genai.Client"
+		) as mock_client:
+			mock_client.return_value.models.generate_content.return_value.text = json.dumps(payload)
+			result = generate_quiz_from_transcript("Transcript", "Topic", "Desc")
+
+		self.assertTrue(result["title"].startswith("Quiz: Topic"))
+		self.assertEqual(len(result["questions"]), 10)
+
+	def test_parses_json_when_model_adds_extra_text(self):
+		payload = {
+			"title": "Wrapped Quiz",
+			"description": "Wrapped summary",
+			"questions": self._build_ten_questions(),
+		}
+		wrapped_text = "Here is your quiz output:\n" + json.dumps(payload) + "\nHope this helps."
+
+		with patch.dict("os.environ", {"GOOGLE_API_KEY": "test-key"}, clear=False), patch(
+			"google.genai.Client"
+		) as mock_client:
+			mock_client.return_value.models.generate_content.return_value.text = wrapped_text
+			result = generate_quiz_from_transcript("Transcript", "Topic", "Desc")
+
+		self.assertEqual(result["title"], "Wrapped Quiz")
+		self.assertEqual(result["description"], "Wrapped summary")
+		self.assertEqual(len(result["questions"]), 10)
+
+	def test_oversized_model_response_uses_fallback(self):
+		payload = {
+			"title": "Very Long",
+			"description": "Summary",
+			"questions": self._build_ten_questions(),
+		}
+		wrapped_text = "prefix " + json.dumps(payload)
+
+		with patch.dict(
+			"os.environ",
+			{"GOOGLE_API_KEY": "test-key", "GOOGLE_GENAI_MAX_RESPONSE_CHARS": "40"},
+			clear=False,
+		), patch("google.genai.Client") as mock_client:
+			mock_client.return_value.models.generate_content.return_value.text = wrapped_text
+			result = generate_quiz_from_transcript("Transcript", "Topic", "Desc")
+
+		self.assertTrue(result["title"].startswith("Quiz: Topic"))
+		self.assertEqual(len(result["questions"]), 10)
+
+	def test_quota_error_returns_no_credits_fallback_text(self):
+		with patch.dict("os.environ", {"GOOGLE_API_KEY": "test-key"}, clear=False), patch(
+			"google.genai.Client"
+		) as mock_client:
+			mock_client.return_value.models.generate_content.side_effect = Exception("429 RESOURCE_EXHAUSTED quota exceeded")
+			result = generate_quiz_from_transcript("Transcript", "Topic", "Desc")
+
+		self.assertEqual(result["title"], "AI credits unavailable")
+		self.assertIn("No AI credits available", result["description"])
+		self.assertEqual(len(result["questions"]), 10)
+		self.assertIn("no credits", result["questions"][0]["question_title"].lower())
+		self.assertEqual(result["ai_status"], "no_credits")
+		self.assertIn("RESOURCE_EXHAUSTED", result["ai_error_message"].upper())
+
+	def test_model_not_found_uses_fallback_model(self):
+		payload = {
+			"title": "Fallback Model Quiz",
+			"description": "Summary",
+			"questions": self._build_ten_questions(),
+		}
+
+		with patch.dict(
+			"os.environ",
+			{
+				"GOOGLE_API_KEY": "test-key",
+				"GOOGLE_GENAI_MODEL": "models/invalid-preview-model",
+				"GOOGLE_GENAI_FALLBACK_MODEL": "models/gemini-2.5-flash-lite",
+			},
+			clear=False,
+		), patch("google.genai.Client") as mock_client:
+			mock_client.return_value.models.generate_content.side_effect = [
+				Exception("404 NOT_FOUND model not found"),
+				type("Resp", (), {"text": json.dumps(payload)})(),
+			]
+			result = generate_quiz_from_transcript("Transcript", "Topic", "Desc")
+
+		self.assertEqual(result["title"], "Fallback Model Quiz")
+		self.assertEqual(result["ai_status"], "ok_with_model_fallback")
+		self.assertEqual(result["ai_model"], "models/gemini-2.5-flash-lite")
 
 
 class QuizCreateApiTests(APITestCase):
@@ -43,7 +188,7 @@ class QuizCreateApiTests(APITestCase):
 		self.client.force_authenticate(user=self.user)
 		with patch("quiz_app.api.serializers.download_youtube_audio") as mock_download, patch(
 			"quiz_app.api.serializers.transcribe_audio_file"
-		) as mock_transcribe:
+		) as mock_transcribe, patch("quiz_app.api.serializers.generate_quiz_from_transcript") as mock_generate:
 			mock_download.return_value = {
 				"video_id": "example",
 				"title": "Quiz Title",
@@ -61,6 +206,22 @@ class QuizCreateApiTests(APITestCase):
 				"segments": [{"id": 0, "start": 0.0, "end": 1.0, "text": "Hello"}],
 				"model": "base",
 			}
+			mock_generate.return_value = {
+				"title": "Generated Quiz Title",
+				"description": "Generated summary",
+				"raw_response_text": "{\"title\":\"Generated Quiz Title\"}",
+				"raw_response_json": {"title": "Generated Quiz Title", "description": "Generated summary"},
+				"ai_model": "gemini-2.0-flash",
+				"ai_status": "ok",
+				"ai_error_message": "",
+				"questions": [
+					{
+						"question_title": "What is discussed in the transcript?",
+						"question_options": ["A", "B", "C", "D"],
+						"answer": "A",
+					}
+				],
+			}
 			response = self.client.post(
 				self.url,
 				{"url": "https://www.youtube.com/watch?v=example"},
@@ -69,13 +230,23 @@ class QuizCreateApiTests(APITestCase):
 
 		self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 		self.assertIn("id", response.data)
-		self.assertEqual(response.data["title"], "Quiz Title")
-		self.assertEqual(response.data["description"], "Quiz Description")
+		self.assertEqual(response.data["title"], "Generated Quiz Title")
+		self.assertEqual(response.data["description"], "Generated summary")
 		self.assertEqual(response.data["video_url"], "https://www.youtube.com/watch?v=example")
 		self.assertIn("created_at", response.data)
 		self.assertIn("updated_at", response.data)
 		self.assertIn("questions", response.data)
+		self.assertEqual(response.data["ai_status"], "ok")
+		self.assertIn("ai_response", response.data)
+		self.assertEqual(response.data["ai_response"]["model"], "gemini-2.0-flash")
+		self.assertEqual(response.data["ai_response"]["parsed_json"]["title"], "Generated Quiz Title")
 		self.assertEqual(len(response.data["questions"]), 1)
+		self.assertNotIn("transcript_text", response.data)
+		self.assertNotIn("transcript_language", response.data)
+		self.assertNotIn("transcript_segments", response.data)
+		self.assertNotIn("transcript_model", response.data)
+		self.assertNotIn("youtube_video_id", response.data)
+		self.assertNotIn("audio_file", response.data)
 
 		question = response.data["questions"][0]
 		self.assertIn("id", question)
@@ -98,12 +269,66 @@ class QuizCreateApiTests(APITestCase):
 		self.assertEqual(quiz.transcript_language, "en")
 		self.assertEqual(quiz.transcript_model, "base")
 		self.assertEqual(len(quiz.transcript_segments), 1)
+		self.assertEqual(quiz.ai_response_text, "{\"title\":\"Generated Quiz Title\"}")
+		self.assertEqual(quiz.ai_response_json["title"], "Generated Quiz Title")
+		self.assertEqual(quiz.ai_generation_model, "gemini-2.0-flash")
+		self.assertEqual(quiz.ai_status, "ok")
+		self.assertEqual(quiz.ai_error_message, "")
+
+	def test_uses_generated_question_set_from_transcript(self):
+		self.client.force_authenticate(user=self.user)
+		with patch("quiz_app.api.serializers.download_youtube_audio") as mock_download, patch(
+			"quiz_app.api.serializers.transcribe_audio_file"
+		) as mock_transcribe, patch("quiz_app.api.serializers.generate_quiz_from_transcript") as mock_generate:
+			mock_download.return_value = {
+				"video_id": "genai01",
+				"title": "AI Title",
+				"description": "AI Description",
+				"channel": "AI Channel",
+				"duration_seconds": 88,
+				"webpage_url": "https://www.youtube.com/watch?v=genai01",
+				"audio_file_name": "quiz_audio/genai01.mp3",
+				"audio_filename": "genai01.mp3",
+				"audio_filesize_bytes": 1234,
+			}
+			mock_transcribe.return_value = {
+				"text": "Transcript from video",
+				"language": "en",
+				"segments": [],
+				"model": "tiny",
+			}
+			mock_generate.return_value = {
+				"title": "AI Quiz",
+				"description": "AI summary",
+				"questions": [
+					{
+						"question_title": "Question 1",
+						"question_options": ["A1", "B1", "C1", "D1"],
+						"answer": "A1",
+					},
+					{
+						"question_title": "Question 2",
+						"question_options": ["A2", "B2", "C2", "D2"],
+						"answer": "B2",
+					},
+				],
+			}
+
+			response = self.client.post(
+				self.url,
+				{"url": "https://www.youtube.com/watch?v=genai01"},
+				format="json",
+			)
+
+		self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+		self.assertEqual(len(response.data["questions"]), 2)
+		mock_generate.assert_called_once_with("Transcript from video", "AI Title", "AI Description")
 
 	def test_normalizes_shorts_url_to_watch_format(self):
 		self.client.force_authenticate(user=self.user)
 		with patch("quiz_app.api.serializers.download_youtube_audio") as mock_download, patch(
 			"quiz_app.api.serializers.transcribe_audio_file"
-		) as mock_transcribe:
+		) as mock_transcribe, patch("quiz_app.api.serializers.generate_quiz_from_transcript") as mock_generate:
 			mock_download.return_value = {
 				"video_id": "LWrm9PvKYEY",
 				"title": "Quiz Title",
@@ -121,6 +346,17 @@ class QuizCreateApiTests(APITestCase):
 				"segments": [],
 				"model": "base",
 			}
+			mock_generate.return_value = {
+				"title": "Short Quiz",
+				"description": "Short summary",
+				"questions": [
+					{
+						"question_title": "Q",
+						"question_options": ["A", "B", "C", "D"],
+						"answer": "A",
+					}
+				],
+			}
 			response = self.client.post(
 				self.url,
 				{"url": "https://www.youtube.com/shorts/LWrm9PvKYEY"},
@@ -134,7 +370,7 @@ class QuizCreateApiTests(APITestCase):
 		self.client.force_authenticate(user=self.user)
 		with patch("quiz_app.api.serializers.download_youtube_audio") as mock_download, patch(
 			"quiz_app.api.serializers.transcribe_audio_file"
-		) as mock_transcribe:
+		) as mock_transcribe, patch("quiz_app.api.serializers.generate_quiz_from_transcript") as mock_generate:
 			mock_download.side_effect = [
 				{
 					"video_id": "dup123",
@@ -163,6 +399,30 @@ class QuizCreateApiTests(APITestCase):
 				{"text": "First text", "language": "en", "segments": [], "model": "base"},
 				{"text": "Second text", "language": "de", "segments": [], "model": "base"},
 			]
+			mock_generate.side_effect = [
+				{
+					"title": "First Generated Title",
+					"description": "First Generated Description",
+					"questions": [
+						{
+							"question_title": "First Question",
+							"question_options": ["A", "B", "C", "D"],
+							"answer": "A",
+						}
+					],
+				},
+				{
+					"title": "Second Generated Title",
+					"description": "Second Generated Description",
+					"questions": [
+						{
+							"question_title": "Second Question",
+							"question_options": ["A", "B", "C", "D"],
+							"answer": "B",
+						}
+					],
+				},
+			]
 
 			first = self.client.post(
 				self.url,
@@ -179,8 +439,8 @@ class QuizCreateApiTests(APITestCase):
 		self.assertEqual(second.status_code, status.HTTP_201_CREATED)
 		self.assertEqual(Quiz.objects.count(), 1)
 		quiz = Quiz.objects.get()
-		self.assertEqual(quiz.title, "Updated Title")
-		self.assertEqual(quiz.description, "Updated Description")
+		self.assertEqual(quiz.title, "Second Generated Title")
+		self.assertEqual(quiz.description, "Second Generated Description")
 		self.assertEqual(quiz.youtube_channel, "Updated Channel")
 		self.assertEqual(quiz.youtube_duration_seconds, 222)
 		self.assertEqual(quiz.audio_filesize_bytes, 2000)
@@ -205,7 +465,7 @@ class QuizCreateApiTests(APITestCase):
 		self.client.force_authenticate(user=self.user)
 		with patch("quiz_app.api.serializers.download_youtube_audio") as mock_download, patch(
 			"quiz_app.api.serializers.transcribe_audio_file"
-		) as mock_transcribe:
+		) as mock_transcribe, patch("quiz_app.api.serializers.generate_quiz_from_transcript") as mock_generate:
 			mock_download.return_value = {
 				"video_id": "example",
 				"title": "Quiz Title",
@@ -218,6 +478,17 @@ class QuizCreateApiTests(APITestCase):
 				"audio_filesize_bytes": 1024,
 			}
 			mock_transcribe.side_effect = TranscriptionError("Could not transcribe audio")
+			mock_generate.return_value = {
+				"title": "Q",
+				"description": "Q",
+				"questions": [
+					{
+						"question_title": "Q",
+						"question_options": ["A", "B", "C", "D"],
+						"answer": "A",
+					}
+				],
+			}
 			response = self.client.post(
 				self.url,
 				{"url": "https://www.youtube.com/watch?v=example"},
@@ -231,7 +502,9 @@ class QuizCreateApiTests(APITestCase):
 		self.client.force_authenticate(user=self.user)
 		with patch.dict("os.environ", {"WHISPER_TRANSCRIBE_MAX_SECONDS": "600"}, clear=False), patch(
 			"quiz_app.api.serializers.download_youtube_audio"
-		) as mock_download, patch("quiz_app.api.serializers.transcribe_audio_file") as mock_transcribe:
+		) as mock_download, patch("quiz_app.api.serializers.transcribe_audio_file") as mock_transcribe, patch(
+			"quiz_app.api.serializers.generate_quiz_from_transcript"
+		) as mock_generate:
 			mock_download.return_value = {
 				"video_id": "longvideo",
 				"title": "Long Video",
@@ -248,6 +521,17 @@ class QuizCreateApiTests(APITestCase):
 				"language": "en",
 				"segments": [],
 				"model": "tiny",
+			}
+			mock_generate.return_value = {
+				"title": "Long Quiz",
+				"description": "Long summary",
+				"questions": [
+					{
+						"question_title": "Q",
+						"question_options": ["A", "B", "C", "D"],
+						"answer": "A",
+					}
+				],
 			}
 
 			response = self.client.post(

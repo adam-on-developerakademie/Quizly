@@ -6,6 +6,7 @@ from rest_framework import serializers
 from quiz_app.models import Question, Quiz
 from .services import download_youtube_audio
 from .transcription import transcribe_audio_file
+from .quiz_generation import generate_quiz_from_transcript
 
 
 class QuestionSerializer(serializers.ModelSerializer):
@@ -23,6 +24,7 @@ class QuestionSerializer(serializers.ModelSerializer):
 
 class QuizSerializer(serializers.ModelSerializer):
     questions = QuestionSerializer(many=True, read_only=True)
+    ai_response = serializers.SerializerMethodField()
 
     class Meta:
         model = Quiz
@@ -33,14 +35,18 @@ class QuizSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
             "video_url",
-            "youtube_video_id",
-            "audio_file",
-            "transcript_text",
-            "transcript_language",
-            "transcript_segments",
-            "transcript_model",
+            "ai_status",
+            "ai_response",
             "questions",
         ]
+
+    def get_ai_response(self, obj):
+        return {
+            "model": obj.ai_generation_model,
+            "raw_text": obj.ai_response_text,
+            "parsed_json": obj.ai_response_json,
+            "error": obj.ai_error_message,
+        }
 
 
 class QuizCreateSerializer(serializers.Serializer):
@@ -77,6 +83,11 @@ class QuizCreateSerializer(serializers.Serializer):
             audio_data["audio_file_name"],
             max_seconds=transcribe_max_seconds,
         )
+        generated_quiz = generate_quiz_from_transcript(
+            transcript_data.get("text", ""),
+            audio_data.get("title", "the video"),
+            audio_data.get("description") or "Auto-generated quiz based on the provided YouTube URL.",
+        )
         existing_quiz = Quiz.objects.filter(youtube_video_id=audio_data["video_id"]).first()
 
         if existing_quiz is None:
@@ -84,8 +95,8 @@ class QuizCreateSerializer(serializers.Serializer):
 
         if existing_quiz is None:
             quiz = Quiz.objects.create(
-                title=audio_data["title"],
-                description=audio_data["description"] or "Auto-generated quiz based on the provided YouTube URL.",
+                title=generated_quiz["title"],
+                description=generated_quiz["description"],
                 video_url=audio_data["webpage_url"],
                 youtube_video_id=audio_data["video_id"],
                 youtube_channel=audio_data["channel"],
@@ -97,11 +108,16 @@ class QuizCreateSerializer(serializers.Serializer):
                 transcript_language=transcript_data["language"],
                 transcript_segments=transcript_data["segments"],
                 transcript_model=transcript_data["model"],
+                ai_response_text=generated_quiz.get("raw_response_text", ""),
+                ai_response_json=generated_quiz.get("raw_response_json", {}),
+                ai_generation_model=generated_quiz.get("ai_model", ""),
+                ai_status=generated_quiz.get("ai_status", ""),
+                ai_error_message=generated_quiz.get("ai_error_message", ""),
             )
         else:
             quiz = existing_quiz
-            quiz.title = audio_data["title"]
-            quiz.description = audio_data["description"] or "Auto-generated quiz based on the provided YouTube URL."
+            quiz.title = generated_quiz["title"]
+            quiz.description = generated_quiz["description"]
             quiz.video_url = audio_data["webpage_url"]
             quiz.youtube_video_id = audio_data["video_id"]
             quiz.youtube_channel = audio_data["channel"]
@@ -113,15 +129,21 @@ class QuizCreateSerializer(serializers.Serializer):
             quiz.transcript_language = transcript_data["language"]
             quiz.transcript_segments = transcript_data["segments"]
             quiz.transcript_model = transcript_data["model"]
+            quiz.ai_response_text = generated_quiz.get("raw_response_text", "")
+            quiz.ai_response_json = generated_quiz.get("raw_response_json", {})
+            quiz.ai_generation_model = generated_quiz.get("ai_model", "")
+            quiz.ai_status = generated_quiz.get("ai_status", "")
+            quiz.ai_error_message = generated_quiz.get("ai_error_message", "")
             quiz.save()
 
         quiz.questions.all().delete()
 
-        Question.objects.create(
-            quiz=quiz,
-            question_title="What is the main topic of the video?",
-            question_options=["Option A", "Option B", "Option C", "Option D"],
-            answer="Option A",
-        )
+        for item in generated_quiz["questions"]:
+            Question.objects.create(
+                quiz=quiz,
+                question_title=item["question_title"],
+                question_options=item["question_options"],
+                answer=item["answer"],
+            )
 
         return quiz

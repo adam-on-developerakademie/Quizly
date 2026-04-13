@@ -15,6 +15,11 @@ class Quiz(models.Model):
 	transcript_language = models.CharField(max_length=32, blank=True)
 	transcript_segments = models.JSONField(default=list, blank=True)
 	transcript_model = models.CharField(max_length=64, blank=True)
+	ai_response_text = models.TextField(blank=True)
+	ai_response_json = models.JSONField(default=dict, blank=True)
+	ai_generation_model = models.CharField(max_length=64, blank=True)
+	ai_status = models.CharField(max_length=32, blank=True)
+	ai_error_message = models.TextField(blank=True)
 	created_at = models.DateTimeField(auto_now_add=True)
 	updated_at = models.DateTimeField(auto_now=True)
 

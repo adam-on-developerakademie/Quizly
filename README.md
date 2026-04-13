@@ -81,6 +81,12 @@ Install Whisper from GitHub (required for automatic transcription):
 pip install git+https://github.com/openai/whisper.git
 ```
 
+Install Google GenAI SDK (required for AI-generated quiz questions from transcript):
+
+```powershell
+pip install -q -U google-genai
+```
+
 ## 6. Configure .env
 
 Create `.env` in the project root (same folder as `manage.py`).
@@ -106,6 +112,9 @@ CORS_ALLOW_CREDENTIALS=True
 FFMPEG_LOCATION=C:/ffmpeg
 WHISPER_MODEL=tiny
 WHISPER_TRANSCRIBE_MAX_SECONDS=300
+GOOGLE_API_KEY=replace-with-your-gemini-api-key
+GOOGLE_GENAI_MODEL=gemini-2.0-flash
+GOOGLE_GENAI_MAX_RESPONSE_CHARS=60000
 ```
 
 Important notes:
@@ -115,6 +124,9 @@ Important notes:
 3. After changing `.env`, restart the Django server.
 4. `WHISPER_MODEL=tiny` is recommended for local development (faster, lower resource usage).
 5. `WHISPER_TRANSCRIBE_MAX_SECONDS` limits how many seconds are transcribed (from the start of the audio) to avoid very long blocking requests.
+6. `GOOGLE_API_KEY` enables AI-based question generation from transcript text.
+7. `GOOGLE_GENAI_MODEL` controls which Gemini model is used for generating quiz questions.
+8. `GOOGLE_GENAI_MAX_RESPONSE_CHARS` sets a hard cap for model response length before JSON parsing.
 
 ## 7. Database Setup
 
@@ -176,6 +188,12 @@ On success it:
 4. Runs Whisper transcription on the MP3
 5. Saves file mapping, YouTube metadata, transcript text, language, and segments in DB
 6. Returns the quiz payload with generated question list
+
+Question generation notes:
+
+1. If `GOOGLE_API_KEY` is set, questions are generated with Gemini from transcript content.
+2. If the API key is missing or generation fails, the backend falls back to a safe default 10-question quiz.
+3. Markdown fences and extra wrapper text around JSON are stripped/ignored before parsing.
 
 ## 11. Postman Requirements
 
