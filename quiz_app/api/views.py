@@ -5,6 +5,7 @@ from rest_framework.response import Response
 
 from .serializers import QuizCreateSerializer, QuizSerializer
 from .services import AudioDownloadError
+from .transcription import TranscriptionError
 
 
 class QuizCreateView(APIView):
@@ -21,6 +22,11 @@ class QuizCreateView(APIView):
             return Response(
                 {"detail": str(exc)},
                 status=status.HTTP_400_BAD_REQUEST,
+            )
+        except TranscriptionError as exc:
+            return Response(
+                {"detail": str(exc)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
         except Exception:
             return Response(

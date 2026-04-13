@@ -1,9 +1,11 @@
 from urllib.parse import parse_qs, urlparse
+import os
 
 from rest_framework import serializers
 
 from quiz_app.models import Question, Quiz
 from .services import download_youtube_audio
+from .transcription import transcribe_audio_file
 
 
 class QuestionSerializer(serializers.ModelSerializer):
@@ -31,6 +33,12 @@ class QuizSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
             "video_url",
+            "youtube_video_id",
+            "audio_file",
+            "transcript_text",
+            "transcript_language",
+            "transcript_segments",
+            "transcript_model",
             "questions",
         ]
 
@@ -64,6 +72,11 @@ class QuizCreateSerializer(serializers.Serializer):
     def create(self, validated_data):
         video_url = validated_data["url"]
         audio_data = download_youtube_audio(video_url)
+        transcribe_max_seconds = int(os.getenv("WHISPER_TRANSCRIBE_MAX_SECONDS", "300"))
+        transcript_data = transcribe_audio_file(
+            audio_data["audio_file_name"],
+            max_seconds=transcribe_max_seconds,
+        )
         existing_quiz = Quiz.objects.filter(youtube_video_id=audio_data["video_id"]).first()
 
         if existing_quiz is None:
@@ -80,6 +93,10 @@ class QuizCreateSerializer(serializers.Serializer):
                 audio_file=audio_data["audio_file_name"],
                 audio_filename=audio_data["audio_filename"],
                 audio_filesize_bytes=audio_data["audio_filesize_bytes"],
+                transcript_text=transcript_data["text"],
+                transcript_language=transcript_data["language"],
+                transcript_segments=transcript_data["segments"],
+                transcript_model=transcript_data["model"],
             )
         else:
             quiz = existing_quiz
@@ -92,6 +109,10 @@ class QuizCreateSerializer(serializers.Serializer):
             quiz.audio_file = audio_data["audio_file_name"]
             quiz.audio_filename = audio_data["audio_filename"]
             quiz.audio_filesize_bytes = audio_data["audio_filesize_bytes"]
+            quiz.transcript_text = transcript_data["text"]
+            quiz.transcript_language = transcript_data["language"]
+            quiz.transcript_segments = transcript_data["segments"]
+            quiz.transcript_model = transcript_data["model"]
             quiz.save()
 
         quiz.questions.all().delete()

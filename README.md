@@ -6,6 +6,7 @@ This guide explains how to set up everything required for the current backend fe
 - Cookie-based JWT authentication
 - Quiz creation from YouTube links
 - Audio download and MP3 conversion via yt-dlp + FFmpeg
+- Automatic MP3 transcription with OpenAI Whisper
 - Media file serving in local development
 
 ## 1. Prerequisites
@@ -68,10 +69,16 @@ python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-If `yt-dlp` is missing, install explicitly:
+Install yt-dlp from GitHub:
 
 ```powershell
-pip install yt-dlp
+pip install git+https://github.com/yt-dlp/yt-dlp.git
+```
+
+Install Whisper from GitHub (required for automatic transcription):
+
+```powershell
+pip install git+https://github.com/openai/whisper.git
 ```
 
 ## 6. Configure .env
@@ -97,6 +104,8 @@ CSRF_TRUSTED_ORIGINS=http://127.0.0.1:5500,http://localhost:5500
 CORS_ALLOWED_ORIGINS=http://127.0.0.1:5500,http://localhost:5500
 CORS_ALLOW_CREDENTIALS=True
 FFMPEG_LOCATION=C:/ffmpeg
+WHISPER_MODEL=tiny
+WHISPER_TRANSCRIBE_MAX_SECONDS=300
 ```
 
 Important notes:
@@ -104,6 +113,8 @@ Important notes:
 1. `FFMPEG_LOCATION` should point to FFmpeg root or bin folder.
 2. This backend resolves both `C:/ffmpeg` and `C:/ffmpeg/bin` automatically.
 3. After changing `.env`, restart the Django server.
+4. `WHISPER_MODEL=tiny` is recommended for local development (faster, lower resource usage).
+5. `WHISPER_TRANSCRIBE_MAX_SECONDS` limits how many seconds are transcribed (from the start of the audio) to avoid very long blocking requests.
 
 ## 7. Database Setup
 
@@ -162,8 +173,9 @@ On success it:
 1. Downloads best audio with yt-dlp
 2. Converts to MP3 using FFmpeg
 3. Stores file under `media/quiz_audio/`
-4. Saves file mapping and YouTube metadata in DB
-5. Returns the quiz payload with generated question list
+4. Runs Whisper transcription on the MP3
+5. Saves file mapping, YouTube metadata, transcript text, language, and segments in DB
+6. Returns the quiz payload with generated question list
 
 ## 11. Postman Requirements
 
@@ -243,3 +255,40 @@ Restart backend whenever you change:
 3. Django settings
 
 This avoids stale config/runtime behavior.
+
+## 16. Whisper Performance Tuning
+
+Use `WHISPER_MODEL` in `.env` to control speed vs quality:
+
+1. `tiny`
+   - Fastest
+   - Lowest memory usage
+   - Best for local development and API iteration
+2. `base`
+   - Better accuracy than `tiny`
+   - Moderate speed and memory usage
+3. `small`
+   - Better quality for harder audio
+   - Noticeably slower and heavier
+
+Recommended defaults:
+
+1. Local development: `WHISPER_MODEL=tiny`
+2. Production baseline: `WHISPER_MODEL=base`
+3. Quality-first production: `WHISPER_MODEL=small`
+
+How to switch model safely:
+
+1. Update `.env`, for example:
+
+```dotenv
+WHISPER_MODEL=base
+```
+
+2. Restart the backend server.
+3. Trigger a new `/api/quizzes/` request (existing records are only re-transcribed when a new processing run happens).
+
+Notes:
+
+1. The first transcription with a new model may take longer because model assets are loaded/downloaded.
+2. On CPU-only machines, `tiny` and `base` are usually the most practical options.

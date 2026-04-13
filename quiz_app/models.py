@@ -11,6 +11,10 @@ class Quiz(models.Model):
 	audio_file = models.FileField(upload_to="quiz_audio/", blank=True)
 	audio_filename = models.CharField(max_length=255, blank=True)
 	audio_filesize_bytes = models.BigIntegerField(null=True, blank=True)
+	transcript_text = models.TextField(blank=True)
+	transcript_language = models.CharField(max_length=32, blank=True)
+	transcript_segments = models.JSONField(default=list, blank=True)
+	transcript_model = models.CharField(max_length=64, blank=True)
 	created_at = models.DateTimeField(auto_now_add=True)
 	updated_at = models.DateTimeField(auto_now=True)
 
