@@ -1,7 +1,15 @@
+from django.conf import settings
 from django.db import models
 
 
 class Quiz(models.Model):
+	owner = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name="quizzes",
+	)
 	title = models.CharField(max_length=255)
 	description = models.TextField(blank=True)
 	video_url = models.URLField(max_length=500)

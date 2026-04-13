@@ -22,6 +22,33 @@ class QuestionSerializer(serializers.ModelSerializer):
         ]
 
 
+class QuestionListSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Question
+        fields = [
+            "id",
+            "question_title",
+            "question_options",
+            "answer",
+        ]
+
+
+class QuizListSerializer(serializers.ModelSerializer):
+    questions = QuestionListSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Quiz
+        fields = [
+            "id",
+            "title",
+            "description",
+            "created_at",
+            "updated_at",
+            "video_url",
+            "questions",
+        ]
+
+
 class QuizSerializer(serializers.ModelSerializer):
     questions = QuestionSerializer(many=True, read_only=True)
     ai_response = serializers.SerializerMethodField()
@@ -76,6 +103,7 @@ class QuizCreateSerializer(serializers.Serializer):
         return f"https://www.youtube.com/watch?v={video_id}"
 
     def create(self, validated_data):
+        owner = validated_data.pop("owner", None)
         video_url = validated_data["url"]
         audio_data = download_youtube_audio(video_url)
         transcribe_max_seconds = int(os.getenv("WHISPER_TRANSCRIBE_MAX_SECONDS", "300"))
@@ -88,13 +116,14 @@ class QuizCreateSerializer(serializers.Serializer):
             audio_data.get("title", "the video"),
             audio_data.get("description") or "Auto-generated quiz based on the provided YouTube URL.",
         )
-        existing_quiz = Quiz.objects.filter(youtube_video_id=audio_data["video_id"]).first()
+        existing_quiz = Quiz.objects.filter(owner=owner, youtube_video_id=audio_data["video_id"]).first()
 
         if existing_quiz is None:
-            existing_quiz = Quiz.objects.filter(video_url=audio_data["webpage_url"]).first()
+            existing_quiz = Quiz.objects.filter(owner=owner, video_url=audio_data["webpage_url"]).first()
 
         if existing_quiz is None:
             quiz = Quiz.objects.create(
+                owner=owner,
                 title=generated_quiz["title"],
                 description=generated_quiz["description"],
                 video_url=audio_data["webpage_url"],
@@ -116,6 +145,7 @@ class QuizCreateSerializer(serializers.Serializer):
             )
         else:
             quiz = existing_quiz
+            quiz.owner = owner
             quiz.title = generated_quiz["title"]
             quiz.description = generated_quiz["description"]
             quiz.video_url = audio_data["webpage_url"]

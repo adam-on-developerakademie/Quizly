@@ -165,7 +165,121 @@ class QuizCreateApiTests(APITestCase):
 			email="quiz_user@example.com",
 			password="QuizPass123!",
 		)
+		self.other_user = User.objects.create_user(
+			username="other_user",
+			email="other_user@example.com",
+			password="OtherPass123!",
+		)
 		self.url = reverse("quiz-create")
+		self.detail_url = lambda quiz_id: reverse("quiz-detail", kwargs={"id": quiz_id})
+
+	def test_get_requires_authentication(self):
+		response = self.client.get(self.url)
+		self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+	def test_get_returns_only_authenticated_users_quizzes(self):
+		own_quiz = Quiz.objects.create(
+			owner=self.user,
+			title="Own Quiz",
+			description="Own Description",
+			video_url="https://www.youtube.com/watch?v=own1",
+		)
+		other_quiz = Quiz.objects.create(
+			owner=self.other_user,
+			title="Other Quiz",
+			description="Other Description",
+			video_url="https://www.youtube.com/watch?v=other1",
+		)
+		Quiz.objects.create(
+			title="No Owner Quiz",
+			description="No owner",
+			video_url="https://www.youtube.com/watch?v=none1",
+		)
+		own_quiz.questions.create(
+			question_title="Question 1",
+			question_options=["A", "B", "C", "D"],
+			answer="A",
+		)
+		other_quiz.questions.create(
+			question_title="Other Question",
+			question_options=["A", "B", "C", "D"],
+			answer="A",
+		)
+
+		self.client.force_authenticate(user=self.user)
+		response = self.client.get(self.url)
+
+		self.assertEqual(response.status_code, status.HTTP_200_OK)
+		self.assertEqual(len(response.data), 1)
+		payload = response.data[0]
+		self.assertEqual(payload["title"], "Own Quiz")
+		self.assertEqual(payload["video_url"], "https://www.youtube.com/watch?v=own1")
+		self.assertIn("created_at", payload)
+		self.assertIn("updated_at", payload)
+		self.assertIn("questions", payload)
+		self.assertEqual(len(payload["questions"]), 1)
+		q = payload["questions"][0]
+		self.assertIn("id", q)
+		self.assertIn("question_title", q)
+		self.assertIn("question_options", q)
+		self.assertIn("answer", q)
+		self.assertNotIn("created_at", q)
+		self.assertNotIn("updated_at", q)
+
+	def test_get_detail_requires_authentication(self):
+		quiz = Quiz.objects.create(
+			owner=self.user,
+			title="Own Quiz",
+			description="Own Description",
+			video_url="https://www.youtube.com/watch?v=own1",
+		)
+		response = self.client.get(self.detail_url(quiz.id))
+		self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+	def test_get_detail_returns_404_when_quiz_not_found(self):
+		self.client.force_authenticate(user=self.user)
+		response = self.client.get(self.detail_url(999999))
+		self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+	def test_get_detail_returns_403_for_foreign_quiz(self):
+		quiz = Quiz.objects.create(
+			owner=self.other_user,
+			title="Other Quiz",
+			description="Other Description",
+			video_url="https://www.youtube.com/watch?v=other1",
+		)
+		self.client.force_authenticate(user=self.user)
+		response = self.client.get(self.detail_url(quiz.id))
+		self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+	def test_get_detail_returns_quiz_for_owner(self):
+		quiz = Quiz.objects.create(
+			owner=self.user,
+			title="Detail Quiz",
+			description="Detail Description",
+			video_url="https://www.youtube.com/watch?v=detail1",
+		)
+		quiz.questions.create(
+			question_title="Detail Question",
+			question_options=["A", "B", "C", "D"],
+			answer="A",
+		)
+
+		self.client.force_authenticate(user=self.user)
+		response = self.client.get(self.detail_url(quiz.id))
+
+		self.assertEqual(response.status_code, status.HTTP_200_OK)
+		self.assertEqual(response.data["id"], quiz.id)
+		self.assertEqual(response.data["title"], "Detail Quiz")
+		self.assertEqual(response.data["description"], "Detail Description")
+		self.assertEqual(response.data["video_url"], "https://www.youtube.com/watch?v=detail1")
+		self.assertIn("created_at", response.data)
+		self.assertIn("updated_at", response.data)
+		self.assertIn("questions", response.data)
+		self.assertEqual(len(response.data["questions"]), 1)
+		self.assertEqual(response.data["questions"][0]["question_title"], "Detail Question")
+		self.assertIn("question_options", response.data["questions"][0])
+		self.assertIn("answer", response.data["questions"][0])
 
 	def test_requires_authentication(self):
 		response = self.client.post(
@@ -259,6 +373,7 @@ class QuizCreateApiTests(APITestCase):
 
 		self.assertEqual(Quiz.objects.count(), 1)
 		quiz = Quiz.objects.get()
+		self.assertEqual(quiz.owner, self.user)
 		self.assertEqual(quiz.youtube_video_id, "example")
 		self.assertEqual(quiz.youtube_channel, "Example Channel")
 		self.assertEqual(quiz.youtube_duration_seconds, 123)
