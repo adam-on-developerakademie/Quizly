@@ -32,12 +32,12 @@ Optional but useful VS Code setting:
 
 - Enable `python.terminal.useEnvFile` so terminal sessions can read variables from `.env` automatically.
 
-## 3. Open Project
+## 3. Open Project destination
 
 From a terminal:
 
 ```powershell
-cd C:\backend\projekte\Quizly\BACKEND\Quizly
+cd C:\yourpath\Quizly
 code .
 ```
 
@@ -69,24 +69,6 @@ python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-Install yt-dlp from GitHub:
-
-```powershell
-pip install git+https://github.com/yt-dlp/yt-dlp.git
-```
-
-Install Whisper from GitHub (required for automatic transcription):
-
-```powershell
-pip install git+https://github.com/openai/whisper.git
-```
-
-Install Google GenAI SDK (required for AI-generated quiz questions from transcript):
-
-```powershell
-pip install -q -U google-genai
-```
-
 ## 6. Configure .env
 
 Create `.env` in the project root (same folder as `manage.py`).
@@ -95,7 +77,7 @@ Use this baseline:
 
 ```dotenv
 SECRET_KEY=replace-with-your-secret
-DEBUG=False
+DEBUG=True
 JWT_COOKIE_SECURE=False
 ALLOWED_HOSTS=localhost,127.0.0.1
 DATABASE_ENGINE=django.db.backends.sqlite3
@@ -109,7 +91,7 @@ SERVE_MEDIA=True
 CSRF_TRUSTED_ORIGINS=http://127.0.0.1:5500,http://localhost:5500
 CORS_ALLOWED_ORIGINS=http://127.0.0.1:5500,http://localhost:5500
 CORS_ALLOW_CREDENTIALS=True
-FFMPEG_LOCATION=C:/ffmpeg
+FFMPEG_LOCATION=C:/ffmpeg/
 WHISPER_MODEL=tiny
 WHISPER_TRANSCRIBE_MAX_SECONDS=300
 GOOGLE_API_KEY=replace-with-your-gemini-api-key
@@ -195,118 +177,3 @@ Question generation notes:
 2. If the API key is missing or generation fails, the backend falls back to a safe default 10-question quiz.
 3. Markdown fences and extra wrapper text around JSON are stripped/ignored before parsing.
 
-## 11. Postman Requirements
-
-For authenticated endpoints (`/api/hello/`, `/api/logout/`, `/api/quizzes/`):
-
-1. Login first via `POST /api/login/`
-2. Reuse same cookie jar/session
-3. Set body type to JSON (not text)
-4. Use `Content-Type: application/json`
-
-If you send `text/plain`, DRF returns:
-
-- `415 Unsupported Media Type`
-
-## 12. FFmpeg / yt-dlp Troubleshooting
-
-If quiz creation fails with an FFmpeg message:
-
-1. Verify files exist:
-   - `C:/ffmpeg/bin/ffmpeg.exe`
-   - `C:/ffmpeg/bin/ffprobe.exe`
-2. Set `.env` value:
-   - `FFMPEG_LOCATION=C:/ffmpeg/bin`
-3. Restart server
-
-Quick runtime check:
-
-```powershell
-python manage.py shell -c "from quiz_app.api.services import _resolve_ffmpeg_location; print(_resolve_ffmpeg_location())"
-```
-
-Expected output should be a valid folder path.
-
-## 13. Run Tests
-
-Auth tests:
-
-```powershell
-python manage.py test auth_app
-```
-
-Quiz tests:
-
-```powershell
-python manage.py test quiz_app
-```
-
-All current tests:
-
-```powershell
-python manage.py test quiz_app auth_app
-```
-
-## 14. Git Hygiene for Downloaded Media
-
-Downloaded audio files should not be committed.
-
-Make sure `.gitignore` includes:
-
-```gitignore
-media/
-quiz_cookies.txt
-```
-
-If media files were already tracked, remove from git index (keep local files):
-
-```powershell
-git rm -r --cached media
-```
-
-## 15. Common Restart Rule
-
-Restart backend whenever you change:
-
-1. `.env`
-2. Installed packages
-3. Django settings
-
-This avoids stale config/runtime behavior.
-
-## 16. Whisper Performance Tuning
-
-Use `WHISPER_MODEL` in `.env` to control speed vs quality:
-
-1. `tiny`
-   - Fastest
-   - Lowest memory usage
-   - Best for local development and API iteration
-2. `base`
-   - Better accuracy than `tiny`
-   - Moderate speed and memory usage
-3. `small`
-   - Better quality for harder audio
-   - Noticeably slower and heavier
-
-Recommended defaults:
-
-1. Local development: `WHISPER_MODEL=tiny`
-2. Production baseline: `WHISPER_MODEL=base`
-3. Quality-first production: `WHISPER_MODEL=small`
-
-How to switch model safely:
-
-1. Update `.env`, for example:
-
-```dotenv
-WHISPER_MODEL=base
-```
-
-2. Restart the backend server.
-3. Trigger a new `/api/quizzes/` request (existing records are only re-transcribed when a new processing run happens).
-
-Notes:
-
-1. The first transcription with a new model may take longer because model assets are loaded/downloaded.
-2. On CPU-only machines, `tiny` and `base` are usually the most practical options.
