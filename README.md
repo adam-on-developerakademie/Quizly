@@ -15,7 +15,7 @@ Install these tools first:
 
 1. Python 3.11+ (3.14 also works in this project)
 2. Git
-3. FFmpeg (already available for you at `C:/ffmpeg`)
+3. FFmpeg 
 4. VS Code
 
 ## 2. Recommended VS Code Extensions (Plugins)
@@ -100,14 +100,13 @@ GOOGLE_GENAI_MAX_RESPONSE_CHARS=60000
 
 Important notes:
 
-1. `FFMPEG_LOCATION` should point to FFmpeg root or bin folder.
-2. This backend resolves both `C:/ffmpeg` and `C:/ffmpeg/bin` automatically.
-3. After changing `.env`, restart the Django server.
-4. `WHISPER_MODEL=tiny` is recommended for local development (faster, lower resource usage).
-5. `WHISPER_TRANSCRIBE_MAX_SECONDS` limits how many seconds are transcribed (from the start of the audio) to avoid very long blocking requests.
-6. `GOOGLE_API_KEY` enables AI-based question generation from transcript text.
-7. `GOOGLE_GENAI_MODEL` controls which Gemini model is used for generating quiz questions.
-8. `GOOGLE_GENAI_MAX_RESPONSE_CHARS` sets a hard cap for model response length before JSON parsing.
+1. FFmpeg must be installed on your system before using YouTube audio download/transcription features.
+2. After changing `.env`, restart the Django server.
+3. `WHISPER_MODEL=tiny` is recommended for local development (faster, lower resource usage).
+4. `WHISPER_TRANSCRIBE_MAX_SECONDS` limits how many seconds are transcribed (from the start of the audio) to avoid very long blocking requests.
+5. `GOOGLE_API_KEY` enables AI-based question generation from transcript text.
+6. `GOOGLE_GENAI_MODEL` controls which Gemini model is used for generating quiz questions.
+7. `GOOGLE_GENAI_MAX_RESPONSE_CHARS` sets a hard cap for model response length before JSON parsing.
 
 ## 7. Database Setup
 
