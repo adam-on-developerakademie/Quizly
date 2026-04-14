@@ -11,22 +11,25 @@ class AudioDownloadError(Exception):
 
 
 def _resolve_ffmpeg_location():
-    configured = os.getenv("FFMPEG_LOCATION", "C:/ffmpeg")
-    candidates = [
-        Path(configured),
-        Path(configured) / "bin",
-    ]
+    # If explicitly configured, validate and return a usable ffmpeg location.
+    # If not configured, return None so yt_dlp can auto-detect from PATH.
+    configured = os.getenv("FFMPEG_LOCATION")
+    if not configured:
+        return None
 
-    ffmpeg_from_path = shutil.which("ffmpeg")
-    if ffmpeg_from_path:
-        candidates.append(Path(ffmpeg_from_path).parent)
+    configured_path = Path(configured)
+    candidates = [configured_path, configured_path / "bin"]
 
     for candidate in candidates:
-        if not candidate:
+        if not candidate.exists():
             continue
-        ffmpeg_exe = candidate / "ffmpeg.exe"
-        ffprobe_exe = candidate / "ffprobe.exe"
-        if ffmpeg_exe.exists() and ffprobe_exe.exists():
+
+        if candidate.is_file():
+            return str(candidate)
+
+        ffmpeg_binary = shutil.which("ffmpeg", path=str(candidate))
+        ffprobe_binary = shutil.which("ffprobe", path=str(candidate))
+        if ffmpeg_binary and ffprobe_binary:
             return str(candidate)
 
     return None
@@ -38,11 +41,6 @@ def download_youtube_audio(video_url):
     download_dir.mkdir(parents=True, exist_ok=True)
     tmp_filename = str(download_dir / "%(id)s.%(ext)s")
     ffmpeg_location = _resolve_ffmpeg_location()
-
-    if not ffmpeg_location:
-        raise AudioDownloadError(
-            "FFmpeg/FFprobe not found. Set FFMPEG_LOCATION to the folder containing ffmpeg.exe and ffprobe.exe (e.g. C:/ffmpeg/bin)."
-        )
 
     ydl_opts = {
         "format": "bestaudio/best",
@@ -61,7 +59,8 @@ def download_youtube_audio(video_url):
         "overwrites": True,
     }
 
-    ydl_opts["ffmpeg_location"] = ffmpeg_location
+    if ffmpeg_location:
+        ydl_opts["ffmpeg_location"] = ffmpeg_location
 
     try:
         # First pass: get metadata and proactively remove stale files for same video id.
@@ -95,6 +94,11 @@ def download_youtube_audio(video_url):
                 if fallback_match:
                     downloaded_path = fallback_match[0]
     except Exception as exc:
+        exc_message = str(exc)
+        if "ffprobe and ffmpeg not found" in exc_message.lower() or "postprocessing: ffprobe and ffmpeg not found" in exc_message.lower():
+            raise AudioDownloadError(
+                "FFmpeg/FFprobe wurden nicht gefunden. Installiere ffmpeg und stelle sicher, dass ffmpeg und ffprobe im PATH sind oder setze FFMPEG_LOCATION."
+            ) from exc
         raise AudioDownloadError(f"Could not download YouTube audio: {exc}") from exc
 
     return {
@@ -108,3 +112,12 @@ def download_youtube_audio(video_url):
         "audio_filename": downloaded_path.name,
         "audio_filesize_bytes": downloaded_path.stat().st_size if downloaded_path.exists() else None,
     }
+
+
+def delete_downloaded_audio(audio_file_name):
+    if not audio_file_name:
+        return
+
+    audio_path = Path(settings.BASE_DIR) / "media" / audio_file_name
+    if audio_path.exists() and audio_path.is_file():
+        audio_path.unlink(missing_ok=True)
