@@ -9,8 +9,7 @@ from .serializers import (
     QuizPatchSerializer,
     QuizSerializer,
 )
-from .services import AudioDownloadError
-from .transcription import TranscriptionError
+from .services import AudioDownloadError, TranscriptionError
 from .utils import (
     QuizAccessDenied,
     QuizNotFound,

@@ -4,8 +4,11 @@ import os
 from rest_framework import serializers
 
 from quiz_app.models import Question, Quiz
-from .services import delete_downloaded_audio, download_youtube_audio
-from .transcription import transcribe_audio_file
+from .services import (
+    delete_downloaded_audio,
+    download_youtube_audio,
+    transcribe_audio_file,
+)
 from .quiz_generation import generate_quiz_from_transcript
 
 

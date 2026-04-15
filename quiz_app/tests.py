@@ -9,10 +9,8 @@ from pathlib import Path
 import os
 import json
 
-from quiz_app.api.services import AudioDownloadError
+from quiz_app.api.services import AudioDownloadError, TranscriptionError, transcribe_audio_file
 from quiz_app.api.quiz_generation import generate_quiz_from_transcript
-from quiz_app.api.transcription import TranscriptionError
-from quiz_app.api.transcription import transcribe_audio_file
 from quiz_app.models import Quiz
 
 
@@ -796,7 +794,7 @@ class QuizCreateApiTests(APITestCase):
 
 		try:
 			with patch.dict(os.environ, {"WHISPER_MODEL": "tiny"}, clear=False), patch(
-				"quiz_app.api.transcription._load_model"
+				"quiz_app.api.services._load_model"
 			) as mock_load_model:
 				mock_model = mock_load_model.return_value
 				mock_model.transcribe.return_value = {
