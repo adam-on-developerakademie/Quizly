@@ -505,9 +505,10 @@ class QuizCreateApiTests(APITestCase):
 		self.assertEqual(quiz.youtube_video_id, "example")
 		self.assertEqual(quiz.youtube_channel, "Example Channel")
 		self.assertEqual(quiz.youtube_duration_seconds, 123)
-		self.assertEqual(quiz.audio_file.name, "quiz_audio/example.webm")
-		self.assertEqual(quiz.audio_filename, "example.webm")
-		self.assertEqual(quiz.audio_filesize_bytes, 1024)
+		# Audio files are deleted after transcription, so these should be empty/null
+		self.assertEqual(quiz.audio_file.name, "")
+		self.assertEqual(quiz.audio_filename, "")
+		self.assertIsNone(quiz.audio_filesize_bytes)
 		self.assertEqual(quiz.transcript_text, "Transcribed text")
 		self.assertEqual(quiz.transcript_language, "en")
 		self.assertEqual(quiz.transcript_model, "base")
@@ -686,7 +687,8 @@ class QuizCreateApiTests(APITestCase):
 		self.assertEqual(quiz.description, "Second Generated Description")
 		self.assertEqual(quiz.youtube_channel, "Updated Channel")
 		self.assertEqual(quiz.youtube_duration_seconds, 222)
-		self.assertEqual(quiz.audio_filesize_bytes, 2000)
+		# Audio files are deleted after transcription, so filesize should be null
+		self.assertIsNone(quiz.audio_filesize_bytes)
 		self.assertEqual(quiz.transcript_text, "Second text")
 		self.assertEqual(quiz.transcript_language, "de")
 		self.assertEqual(quiz.questions.count(), 1)
