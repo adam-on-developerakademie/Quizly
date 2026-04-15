@@ -1,19 +1,23 @@
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.views import APIView
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
-from .serializers import QuizCreateSerializer, QuizListSerializer, QuizPatchSerializer, QuizSerializer
+from .serializers import (
+    QuizCreateSerializer,
+    QuizListSerializer,
+    QuizPatchSerializer,
+    QuizSerializer,
+)
 from .services import AudioDownloadError
 from .transcription import TranscriptionError
 from .utils import (
-	get_user_owned_quiz,
-	quiz_error_response,
-	server_error_response,
-	QuizNotFound,
-	QuizAccessDenied,
+    QuizAccessDenied,
+    QuizNotFound,
+    get_user_owned_quiz,
+    quiz_error_response,
+    server_error_response,
 )
-from quiz_app.models import Quiz
 
 
 class QuizCreateView(APIView):
@@ -21,15 +25,23 @@ class QuizCreateView(APIView):
 
     def get(self, request):
         try:
-            quizzes = request.user.quizzes.prefetch_related("questions").order_by("-updated_at")
-            return Response(QuizListSerializer(quizzes, many=True).data, status=status.HTTP_200_OK)
+            quizzes = request.user.quizzes.prefetch_related(
+                "questions"
+            ).order_by("-updated_at")
+            return Response(
+                QuizListSerializer(quizzes, many=True).data,
+                status=status.HTTP_200_OK,
+            )
         except Exception:
             return server_error_response()
 
     def post(self, request):
         serializer = QuizCreateSerializer(data=request.data)
         if not serializer.is_valid():
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                serializer.errors,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         try:
             quiz = serializer.save(owner=request.user)
@@ -46,7 +58,10 @@ class QuizCreateView(APIView):
         except Exception:
             return server_error_response()
 
-        return Response(QuizSerializer(quiz).data, status=status.HTTP_201_CREATED)
+        return Response(
+            QuizSerializer(quiz).data,
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class QuizDetailView(APIView):
@@ -55,7 +70,10 @@ class QuizDetailView(APIView):
     def get(self, request, id):
         try:
             quiz = get_user_owned_quiz(id, request.user)
-            return Response(QuizListSerializer(quiz).data, status=status.HTTP_200_OK)
+            return Response(
+                QuizListSerializer(quiz).data,
+                status=status.HTTP_200_OK,
+            )
         except (QuizNotFound, QuizAccessDenied) as exc:
             return quiz_error_response(exc)
         except Exception:
@@ -66,7 +84,11 @@ class QuizDetailView(APIView):
             quiz = get_user_owned_quiz(id, request.user)
 
             allowed_fields = {"title", "description"}
-            provided_fields = set(request.data.keys()) if hasattr(request.data, "keys") else set()
+            provided_fields = (
+                set(request.data.keys())
+                if hasattr(request.data, "keys")
+                else set()
+            )
             unsupported_fields = sorted(provided_fields - allowed_fields)
             if unsupported_fields:
                 return Response(
@@ -76,13 +98,19 @@ class QuizDetailView(APIView):
 
             serializer = QuizPatchSerializer(data=request.data, partial=True)
             if not serializer.is_valid():
-                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+                return Response(
+                    serializer.errors,
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
             for field, value in serializer.validated_data.items():
                 setattr(quiz, field, value)
             quiz.save()
 
-            return Response(QuizListSerializer(quiz).data, status=status.HTTP_200_OK)
+            return Response(
+                QuizListSerializer(quiz).data,
+                status=status.HTTP_200_OK,
+            )
         except (QuizNotFound, QuizAccessDenied) as exc:
             return quiz_error_response(exc)
         except Exception:

@@ -1,20 +1,32 @@
 import logging
 
 from rest_framework import status
-from rest_framework.views import APIView
-from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.permissions import (
+    AllowAny,
+    IsAuthenticated,
+)
 from rest_framework.response import Response
-from rest_framework_simplejwt.tokens import AccessToken, RefreshToken
 from rest_framework_simplejwt.exceptions import TokenError
-from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+from rest_framework_simplejwt.tokens import (
+    AccessToken,
+    RefreshToken,
+)
+from rest_framework_simplejwt.views import (
+    TokenObtainPairView,
+    TokenRefreshView,
+)
+from rest_framework.views import APIView
 
-from .serializers import RegistrationSerializer, CustomTokenObtainPairSerializer
 from auth_app.models import RevokedToken
+from .serializers import (
+    CustomTokenObtainPairSerializer,
+    RegistrationSerializer,
+)
 from .utils import (
-	get_token_time_info,
-	revoke_token,
-	set_auth_cookies,
-	clear_auth_cookies,
+    clear_auth_cookies,
+    get_token_time_info,
+    revoke_token,
+    set_auth_cookies,
 )
 
 
@@ -33,12 +45,13 @@ class RegistrationView(APIView):
 
         serializer = RegistrationSerializer(data=request.data)
 
-        data = {}
         if serializer.is_valid():
             serializer.save()
-            return Response({"detail": "User created successfully!"}, status=status.HTTP_201_CREATED)
-        else:
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"detail": "User created successfully!"},
+                status=status.HTTP_201_CREATED,
+            )
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
 class HelloWorld(APIView):
@@ -53,8 +66,14 @@ class HelloWorld(APIView):
                 "message": "Hello {}".format(request.user.username),
                 "email": request.user.email,
                 "user_id": request.user.pk,
-                "access_token_info": get_token_time_info(access_token, AccessToken),
-                "refresh_token_info": get_token_time_info(refresh_token, RefreshToken),
+                "access_token_info": get_token_time_info(
+                    access_token,
+                    AccessToken,
+                ),
+                "refresh_token_info": get_token_time_info(
+                    refresh_token,
+                    RefreshToken,
+                ),
             }
         )
 
@@ -81,7 +100,11 @@ class CookieTokenObtainPairView(TokenObtainPairView):
         refresh = serialiser.validated_data["refresh"]
         access = serialiser.validated_data["access"]
 
-        response = set_auth_cookies(response, access_token=access, refresh_token=refresh)
+        response = set_auth_cookies(
+            response,
+            access_token=access,
+            refresh_token=refresh,
+        )
 
         return response
 
@@ -98,18 +121,30 @@ class CookieTokenRefreshView(TokenRefreshView):
         try:
             refresh_obj = RefreshToken(refresh_token)
         except TokenError:
-            return Response({"error": "Invalid refresh token"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"error": "Invalid refresh token"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         refresh_jti = refresh_obj.get("jti")
-        if refresh_jti and RevokedToken.objects.filter(jti=refresh_jti).exists():
-            return Response({"error": "Refresh token has been revoked"}, status=status.HTTP_401_UNAUTHORIZED)
+        if (
+            refresh_jti
+            and RevokedToken.objects.filter(jti=refresh_jti).exists()
+        ):
+            return Response(
+                {"error": "Refresh token has been revoked"},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
 
         data = {"refresh": refresh_token}
         serializer = self.get_serializer(data=data)
         try:
             serializer.is_valid(raise_exception=True)
         except Exception as e:
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         access = serializer.validated_data.get("access")
 
@@ -133,7 +168,8 @@ class LogoutView(APIView):
             try:
                 RefreshToken(refresh_token).blacklist()
             except Exception:
-                # Blacklist table may already contain this token or token can be invalid.
+                # Blacklist table may already contain this token or token can
+                # be invalid.
                 pass
 
         logger.info(
@@ -145,7 +181,10 @@ class LogoutView(APIView):
 
         response = Response(
             {
-                "detail": "Log-Out successfully! All Tokens will be deleted. Refresh token is now invalid."
+                "detail": (
+                    "Log-Out successfully! All Tokens will be deleted. "
+                    "Refresh token is now invalid."
+                )
             },
             status=status.HTTP_200_OK,
         )
