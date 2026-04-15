@@ -100,6 +100,8 @@ class CookieTokenRefreshView(TokenRefreshView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # Reject tokens that were explicitly revoked at logout before
+        # simplejwt’s own blacklist mechanism would catch them.
         refresh_jti = refresh_obj.get("jti")
         if (
             refresh_jti
@@ -136,8 +138,13 @@ class LogoutView(APIView):
         access_token = request.COOKIES.get("access_token")
         refresh_token = request.COOKIES.get("refresh_token")
 
+        # Store both tokens in our own revocation table for fast synchronous
+        # checks (e.g. the refresh endpoint) without relying solely on the
+        # simplejwt blacklist.
         revoked_access = revoke_token(access_token, AccessToken, source_ip)
         revoked_refresh = revoke_token(refresh_token, RefreshToken, source_ip)
+        # Additionally blacklist through simplejwt so standard simplejwt
+        # middleware also rejects the token even if our custom check is skipped.
         if refresh_token:
             try:
                 RefreshToken(refresh_token).blacklist()

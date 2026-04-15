@@ -83,6 +83,8 @@ def download_youtube_audio(video_url):
 
         with YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(video_url, download=True)
+            # yt-dlp exposes the post-processed file path in different keys
+            # depending on version; try each location in order of reliability.
             final_filepath = None
             requested_downloads = info.get("requested_downloads") or []
             if requested_downloads and isinstance(requested_downloads[0], dict):
@@ -92,6 +94,7 @@ def download_youtube_audio(video_url):
                 final_filepath = info.get("filepath")
 
             if not final_filepath:
+                # Last resort: reconstruct the expected path from the download template.
                 prepared = Path(ydl.prepare_filename(info))
                 final_filepath = str(prepared.with_suffix(".mp3"))
 
@@ -145,9 +148,14 @@ def _build_audio_clip(audio_path, max_seconds):
         if not ffmpeg_exe.exists():
             return audio_path, False
 
+    # Unique prefix avoids name collisions when multiple clips are created concurrently.
     clip_name = f"clip_{uuid4().hex}_{audio_path.name}"
     clip_path = audio_path.parent / clip_name
 
+    # -y: overwrite output without prompting;
+    # -t: stop writing after max_seconds;
+    # -vn: drop any video stream;
+    # -acodec copy: copy the audio stream without re-encoding (fast, lossless).
     command = [
         str(ffmpeg_exe),
         "-y",
@@ -171,11 +179,14 @@ def _build_audio_clip(audio_path, max_seconds):
     except Exception:
         if clip_path.exists():
             clip_path.unlink(missing_ok=True)
+        # Clipping failed — fall back to transcribing the full audio file.
         return audio_path, False
 
     return clip_path, True
 
 
+# Cache up to two loaded models to avoid reloading on every request
+# (the configured model plus one potential fallback / temporary switch).
 @lru_cache(maxsize=2)
 def _load_model(model_name):
     return whisper.load_model(model_name)
@@ -194,6 +205,8 @@ def transcribe_audio_file(audio_file_name, max_seconds=0):
 
     try:
         model = _load_model(model_name)
+        # fp16=False: half-precision inference requires a GPU.
+        # CPU inference must use fp32 to avoid errors on most hardware.
         result = model.transcribe(str(transcription_input_path), fp16=False)
     except Exception as exc:
         raise TranscriptionError(

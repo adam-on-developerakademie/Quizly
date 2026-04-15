@@ -87,6 +87,7 @@ def _sanitize_quiz_payload(payload: object, topic_hint: str, description_hint: s
         if any(not opt for opt in normalized_options) or len(set(normalized_options)) != 4:
             continue
 
+        # The declared answer must be one of the offered options.
         if answer not in normalized_options:
             continue
 
@@ -99,6 +100,8 @@ def _sanitize_quiz_payload(payload: object, topic_hint: str, description_hint: s
         )
 
     if len(cleaned) < 10:
+        # We always need exactly 10 valid questions; return the safe fallback
+        # if the model did not deliver enough usable items.
         return fallback, True
 
     return (
@@ -112,6 +115,8 @@ def _sanitize_quiz_payload(payload: object, topic_hint: str, description_hint: s
 
 
 def _strip_markdown_fences(text: str) -> str:
+    # AI models often wrap JSON output in markdown code fences (```json … ```).
+    # Extract the inner content when that pattern is present.
     stripped = (text or "").strip()
     fence_match = re.search(r"```(?:json)?\s*(.*?)```", stripped, flags=re.IGNORECASE | re.DOTALL)
     if fence_match:
@@ -126,6 +131,8 @@ def _parse_model_json(text: str) -> object:
     except Exception:
         pass
 
+    # Standard json.loads failed — scan the text character by character for
+    # the first valid JSON object or array embedded in the response.
     decoder = json.JSONDecoder()
     for idx, ch in enumerate(cleaned):
         if ch not in "{[":
@@ -192,6 +199,8 @@ def generate_quiz_from_transcript(transcript_text: str, topic_hint: str, descrip
             error_message="google-genai SDK import failed.",
         )
 
+    # Limit transcript length to stay within the model's context window and
+    # reduce token cost; 12 000 characters cover roughly 15 minutes of speech.
     truncated_transcript = transcript_text[:12000]
     prompt = (
         "Based on the following transcript, generate a quiz in valid JSON format.\n\n"
@@ -218,6 +227,8 @@ def generate_quiz_from_transcript(transcript_text: str, topic_hint: str, descrip
 
     try:
         client = genai.Client(api_key=api_key)
+        # Try the primary model first; if it is unavailable (NOT_FOUND), advance
+        # to the fallback model. Any other error (quota, network …) is re-raised.
         models_to_try = [model_name]
         if fallback_model_name and fallback_model_name not in models_to_try:
             models_to_try.append(fallback_model_name)

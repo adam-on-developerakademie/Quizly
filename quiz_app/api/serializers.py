@@ -85,6 +85,8 @@ class QuizCreateSerializer(serializers.Serializer):
     def validate_url(self, value):
         parsed = urlparse(value)
         host = (parsed.netloc or "").lower()
+        # Strip 'www.' so all subdomain variants (www., m., youtube-nocookie …)
+        # are handled uniformly by the checks below.
         if host.startswith("www."):
             host = host[4:]
 
@@ -103,6 +105,8 @@ class QuizCreateSerializer(serializers.Serializer):
         if not video_id:
             raise serializers.ValidationError("Invalid YouTube URL")
 
+        # Normalise every supported YouTube URL variant to a single canonical
+        # watch URL so the rest of the pipeline always receives the same form.
         return f"https://www.youtube.com/watch?v={video_id}"
 
     def create(self, validated_data):
@@ -120,6 +124,8 @@ class QuizCreateSerializer(serializers.Serializer):
                 audio_data.get("title", "the video"),
                 audio_data.get("description") or "Auto-generated quiz based on the provided YouTube URL.",
             )
+            # Deduplicate: look up by stable video ID first, then fall back to
+            # the URL for quizzes that were created before video_id was stored.
             existing_quiz = Quiz.objects.filter(owner=owner, youtube_video_id=audio_data["video_id"]).first()
 
             if existing_quiz is None:
@@ -182,6 +188,8 @@ class QuizCreateSerializer(serializers.Serializer):
 
             return quiz
         finally:
+            # The audio file is always removed after processing — we deliberately
+            # do not persist downloaded files on disk.
             delete_downloaded_audio(audio_data.get("audio_file_name"))
 
 
