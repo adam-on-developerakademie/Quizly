@@ -1,3 +1,5 @@
+"""Integration tests for cookie-based authentication flows."""
+
 from django.contrib.auth.models import User
 from django.urls import reverse
 from rest_framework import status
@@ -7,7 +9,10 @@ from auth_app.models import RevokedToken
 
 
 class AuthCookieFlowTests(APITestCase):
+	"""Verify login, refresh, logout, and registration authentication behavior."""
+
 	def setUp(self):
+		"""Create a reusable test user and credentials."""
 		self.password = "TestPass123!"
 		self.user = User.objects.create_user(
 			username="tester",
@@ -16,6 +21,7 @@ class AuthCookieFlowTests(APITestCase):
 		)
 
 	def _login(self):
+		"""Perform login via e-mail and return the response."""
 		return self.client.post(
 			reverse("login"),
 			{"email": self.user.email, "password": self.password},
@@ -23,6 +29,7 @@ class AuthCookieFlowTests(APITestCase):
 		)
 
 	def _login_with_username(self):
+		"""Perform login via username and return the response."""
 		return self.client.post(
 			reverse("login"),
 			{"username": self.user.username, "password": self.password},

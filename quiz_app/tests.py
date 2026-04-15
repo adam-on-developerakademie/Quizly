@@ -1,3 +1,5 @@
+"""Unit and API tests for quiz generation and quiz CRUD endpoints."""
+
 from django.contrib.auth.models import User
 from django.conf import settings
 from django.test import SimpleTestCase
@@ -15,7 +17,10 @@ from quiz_app.models import Quiz
 
 
 class QuizGenerationTests(SimpleTestCase):
+	"""Validate quiz-generation fallback and parsing behavior."""
+
 	def _build_ten_questions(self):
+		"""Return a valid list containing ten multiple-choice questions."""
 		questions = []
 		for i in range(1, 11):
 			questions.append(
@@ -157,7 +162,10 @@ class QuizGenerationTests(SimpleTestCase):
 
 
 class QuizCreateApiTests(APITestCase):
+	"""Validate quiz creation, listing, and detail endpoint behavior."""
+
 	def setUp(self):
+		"""Create test users and commonly used API URLs."""
 		self.user = User.objects.create_user(
 			username="quiz_user",
 			email="quiz_user@example.com",
@@ -503,7 +511,6 @@ class QuizCreateApiTests(APITestCase):
 		self.assertEqual(quiz.youtube_video_id, "example")
 		self.assertEqual(quiz.youtube_channel, "Example Channel")
 		self.assertEqual(quiz.youtube_duration_seconds, 123)
-		# Audio files are deleted after transcription, so these should be empty/null
 		self.assertEqual(quiz.audio_file.name, "")
 		self.assertEqual(quiz.audio_filename, "")
 		self.assertIsNone(quiz.audio_filesize_bytes)
@@ -685,7 +692,6 @@ class QuizCreateApiTests(APITestCase):
 		self.assertEqual(quiz.description, "Second Generated Description")
 		self.assertEqual(quiz.youtube_channel, "Updated Channel")
 		self.assertEqual(quiz.youtube_duration_seconds, 222)
-		# Audio files are deleted after transcription, so filesize should be null
 		self.assertIsNone(quiz.audio_filesize_bytes)
 		self.assertEqual(quiz.transcript_text, "Second text")
 		self.assertEqual(quiz.transcript_language, "de")

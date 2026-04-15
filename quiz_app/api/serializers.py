@@ -1,5 +1,7 @@
-from urllib.parse import parse_qs, urlparse
+"""Serializers for quiz creation, listing, and partial updates."""
+
 import os
+from urllib.parse import parse_qs, urlparse
 
 from rest_framework import serializers
 
@@ -13,6 +15,8 @@ from .quiz_generation import generate_quiz_from_transcript
 
 
 class QuestionSerializer(serializers.ModelSerializer):
+    """Serialize full question details for quiz detail responses."""
+
     class Meta:
         model = Question
         fields = [
@@ -26,6 +30,8 @@ class QuestionSerializer(serializers.ModelSerializer):
 
 
 class QuestionListSerializer(serializers.ModelSerializer):
+    """Serialize compact question fields for list-style quiz responses."""
+
     class Meta:
         model = Question
         fields = [
@@ -37,6 +43,8 @@ class QuestionListSerializer(serializers.ModelSerializer):
 
 
 class QuizListSerializer(serializers.ModelSerializer):
+    """Serialize quizzes with nested compact question payloads."""
+
     questions = QuestionListSerializer(many=True, read_only=True)
 
     class Meta:
@@ -53,6 +61,8 @@ class QuizListSerializer(serializers.ModelSerializer):
 
 
 class QuizSerializer(serializers.ModelSerializer):
+    """Serialize a quiz including AI generation metadata."""
+
     questions = QuestionSerializer(many=True, read_only=True)
     ai_response = serializers.SerializerMethodField()
 
@@ -71,6 +81,7 @@ class QuizSerializer(serializers.ModelSerializer):
         ]
 
     def get_ai_response(self, obj):
+        """Return grouped AI metadata as a stable response object."""
         return {
             "model": obj.ai_generation_model,
             "raw_text": obj.ai_response_text,
@@ -80,13 +91,21 @@ class QuizSerializer(serializers.ModelSerializer):
 
 
 class QuizCreateSerializer(serializers.Serializer):
+    """Validate a YouTube URL and create or refresh a generated quiz."""
+
     url = serializers.URLField()
 
     def validate_url(self, value):
+        """Normalize supported YouTube URL formats to one canonical URL.
+
+        The ``www.`` prefix is stripped first so that all hostname variants
+        (``www.``, ``m.``, ``youtube-nocookie.com``) are handled by the same
+        checks. Watch URLs, ``/shorts/``, ``/embed/``, and ``youtu.be`` short
+        links are all accepted. Every supported format is rewritten to the
+        canonical form ``https://www.youtube.com/watch?v=<id>``.
+        """
         parsed = urlparse(value)
         host = (parsed.netloc or "").lower()
-        # Strip 'www.' so all subdomain variants (www., m., youtube-nocookie …)
-        # are handled uniformly by the checks below.
         if host.startswith("www."):
             host = host[4:]
 
@@ -105,11 +124,21 @@ class QuizCreateSerializer(serializers.Serializer):
         if not video_id:
             raise serializers.ValidationError("Invalid YouTube URL")
 
-        # Normalise every supported YouTube URL variant to a single canonical
-        # watch URL so the rest of the pipeline always receives the same form.
         return f"https://www.youtube.com/watch?v={video_id}"
 
     def create(self, validated_data):
+        """Generate quiz content from YouTube audio and persist questions.
+
+        Deduplication is performed in two steps: the database is searched
+        first by the stable YouTube video ID, then by the page URL for
+        records created before the video ID field was introduced. When an
+        existing quiz is found it is updated in place; otherwise a new
+        record is created.
+
+        The downloaded audio file is always removed in the ``finally`` block
+        regardless of success or failure. Audio data is deliberately not
+        persisted on disk after transcription.
+        """
         owner = validated_data.pop("owner", None)
         video_url = validated_data["url"]
         audio_data = download_youtube_audio(video_url)
@@ -124,8 +153,6 @@ class QuizCreateSerializer(serializers.Serializer):
                 audio_data.get("title", "the video"),
                 audio_data.get("description") or "Auto-generated quiz based on the provided YouTube URL.",
             )
-            # Deduplicate: look up by stable video ID first, then fall back to
-            # the URL for quizzes that were created before video_id was stored.
             existing_quiz = Quiz.objects.filter(owner=owner, youtube_video_id=audio_data["video_id"]).first()
 
             if existing_quiz is None:
@@ -188,16 +215,21 @@ class QuizCreateSerializer(serializers.Serializer):
 
             return quiz
         finally:
-            # The audio file is always removed after processing — we deliberately
-            # do not persist downloaded files on disk.
             delete_downloaded_audio(audio_data.get("audio_file_name"))
 
 
 class QuizPatchSerializer(serializers.Serializer):
+    """Validate editable quiz fields for partial updates."""
+
     title = serializers.CharField(max_length=255, required=False)
     description = serializers.CharField(required=False, allow_blank=True)
 
     def validate(self, attrs):
+        """Reject empty PATCH payloads.
+
+        At least one of ``title`` or ``description`` must be present in the
+        request body; an empty object is treated as a client error.
+        """
         if not attrs:
             raise serializers.ValidationError("No fields provided for update")
         return attrs

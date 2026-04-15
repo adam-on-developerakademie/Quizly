@@ -1,3 +1,5 @@
+"""API views for creating, listing, updating, and deleting quizzes."""
+
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -20,9 +22,12 @@ from .utils import (
 
 
 class QuizCreateView(APIView):
+    """Handle quiz collection operations for the authenticated user."""
+
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        """Return all quizzes owned by the authenticated user."""
         try:
             quizzes = request.user.quizzes.prefetch_related(
                 "questions"
@@ -35,6 +40,7 @@ class QuizCreateView(APIView):
             return server_error_response()
 
     def post(self, request):
+        """Create a new AI-generated quiz from a YouTube URL."""
         serializer = QuizCreateSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(
@@ -64,9 +70,12 @@ class QuizCreateView(APIView):
 
 
 class QuizDetailView(APIView):
+    """Handle read, partial update, and deletion for a single quiz."""
+
     permission_classes = [IsAuthenticated]
 
     def get(self, request, id):
+        """Return one owned quiz including its questions."""
         try:
             quiz = get_user_owned_quiz(id, request.user)
             return Response(
@@ -79,6 +88,7 @@ class QuizDetailView(APIView):
             return server_error_response()
 
     def patch(self, request, id):
+        """Update only title and description fields on an owned quiz."""
         try:
             quiz = get_user_owned_quiz(id, request.user)
 
@@ -116,6 +126,7 @@ class QuizDetailView(APIView):
             return server_error_response()
 
     def delete(self, request, id):
+        """Delete an owned quiz and return no content."""
         try:
             quiz = get_user_owned_quiz(id, request.user)
             quiz.delete()

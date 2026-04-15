@@ -7,6 +7,7 @@ class CookieJWTAuthentication(JWTAuthentication):
     """Authenticate using JWT from HttpOnly cookie as a fallback."""
 
     def authenticate(self, request):
+        """Authenticate from bearer header first, then fall back to cookie token."""
         header = self.get_header(request)
 
         if header is not None:
@@ -19,7 +20,6 @@ class CookieJWTAuthentication(JWTAuthentication):
         try:
             validated_token = self.get_validated_token(raw_token)
         except (TokenError, InvalidToken):
-            # Invalid or expired cookie tokens should behave like anonymous requests.
             return None
 
         token_jti = validated_token.get("jti")

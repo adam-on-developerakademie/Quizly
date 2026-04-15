@@ -1,3 +1,5 @@
+"""Utility helpers for JWT cookie handling and token revocation."""
+
 import logging
 from datetime import datetime, timezone
 

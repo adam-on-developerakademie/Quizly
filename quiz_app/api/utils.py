@@ -1,3 +1,5 @@
+"""Utility helpers for quiz ownership checks and error responses."""
+
 from rest_framework import status
 from rest_framework.response import Response
 

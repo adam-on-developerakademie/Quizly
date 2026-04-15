@@ -1,9 +1,16 @@
+"""Quiz generation helpers backed by Google GenAI responses."""
+
 import json
 import os
 import re
 
 
 def _get_max_response_chars() -> int:
+    """Read and validate the maximum number of AI response characters to keep.
+
+    Reads ``GOOGLE_GENAI_MAX_RESPONSE_CHARS`` from the environment. Falls
+    back to 60 000 when the variable is unset, non-numeric, or not positive.
+    """
     raw = os.getenv("GOOGLE_GENAI_MAX_RESPONSE_CHARS", "60000").strip()
     try:
         value = int(raw)
@@ -15,6 +22,12 @@ def _get_max_response_chars() -> int:
 
 
 def _build_fallback_quiz(topic_hint: str, description_hint: str, reason: str = "") -> dict:
+    """Build a deterministic fallback quiz when AI output is unavailable or invalid.
+
+    When ``reason`` is ``"no_credits"`` a special placeholder quiz with a
+    billing-related message is returned. Otherwise ten generic questions are
+    generated from ``topic_hint`` so the API always returns a usable response.
+    """
     if reason == "no_credits":
         options = ["Retry later", "Add credits", "Use another key", "Disable AI mode"]
         questions = []
@@ -57,6 +70,16 @@ def _build_fallback_quiz(topic_hint: str, description_hint: str, reason: str = "
 
 
 def _sanitize_quiz_payload(payload: object, topic_hint: str, description_hint: str) -> tuple[dict, bool]:
+    """Validate and normalize model output into the expected quiz schema.
+
+    Each question is accepted only when it has a non-empty title, exactly
+    four distinct non-empty options, and an answer that is present among
+    those options. The fallback quiz is returned when fewer than ten valid
+    questions are found, because the application always requires exactly ten.
+
+    Returns a tuple of ``(quiz_dict, used_fallback)`` where ``used_fallback``
+    is ``True`` when the sanitized payload did not meet quality requirements.
+    """
     fallback = _build_fallback_quiz(topic_hint, description_hint)
 
     if not isinstance(payload, dict):
@@ -87,7 +110,6 @@ def _sanitize_quiz_payload(payload: object, topic_hint: str, description_hint: s
         if any(not opt for opt in normalized_options) or len(set(normalized_options)) != 4:
             continue
 
-        # The declared answer must be one of the offered options.
         if answer not in normalized_options:
             continue
 
@@ -100,8 +122,6 @@ def _sanitize_quiz_payload(payload: object, topic_hint: str, description_hint: s
         )
 
     if len(cleaned) < 10:
-        # We always need exactly 10 valid questions; return the safe fallback
-        # if the model did not deliver enough usable items.
         return fallback, True
 
     return (
@@ -115,8 +135,12 @@ def _sanitize_quiz_payload(payload: object, topic_hint: str, description_hint: s
 
 
 def _strip_markdown_fences(text: str) -> str:
-    # AI models often wrap JSON output in markdown code fences (```json … ```).
-    # Extract the inner content when that pattern is present.
+    """Remove surrounding markdown code fences from model text output.
+
+    AI models frequently wrap their JSON output inside triple-backtick code
+    fences (e.g. ```json … ```). When this pattern is detected the raw inner
+    content is extracted and returned instead of the full response string.
+    """
     stripped = (text or "").strip()
     fence_match = re.search(r"```(?:json)?\s*(.*?)```", stripped, flags=re.IGNORECASE | re.DOTALL)
     if fence_match:
@@ -125,14 +149,19 @@ def _strip_markdown_fences(text: str) -> str:
 
 
 def _parse_model_json(text: str) -> object:
+    """Parse JSON from model output, including embedded JSON fragments.
+
+    First attempts a direct ``json.loads`` on the cleaned text. If that
+    fails, the text is scanned character by character for the first position
+    that begins a valid JSON object or array, allowing the parser to recover
+    from surrounding prose added by the model.
+    """
     cleaned = _strip_markdown_fences(text)
     try:
         return json.loads(cleaned)
     except Exception:
         pass
 
-    # Standard json.loads failed — scan the text character by character for
-    # the first valid JSON object or array embedded in the response.
     decoder = json.JSONDecoder()
     for idx, ch in enumerate(cleaned):
         if ch not in "{[":
@@ -147,6 +176,11 @@ def _parse_model_json(text: str) -> object:
 
 
 def _limit_model_response_text(text: str) -> str:
+    """Truncate model output text to the configured safe maximum length.
+
+    Responses longer than the value returned by ``_get_max_response_chars``
+    are sliced to that length before any JSON parsing is attempted.
+    """
     max_chars = _get_max_response_chars()
     if len(text) <= max_chars:
         return text
@@ -154,6 +188,20 @@ def _limit_model_response_text(text: str) -> str:
 
 
 def generate_quiz_from_transcript(transcript_text: str, topic_hint: str, description_hint: str) -> dict:
+    """Generate quiz content from transcript text with robust fallback behavior.
+
+    The transcript is truncated to 12 000 characters before being sent to the
+    model. This keeps the request within typical context window limits and
+    covers approximately 15 minutes of spoken content.
+
+    The primary model configured via ``GOOGLE_GENAI_MODEL`` is tried first.
+    If that model reports a NOT_FOUND error the request is retried with the
+    fallback model from ``GOOGLE_GENAI_FALLBACK_MODEL``. Any other error
+    (quota exhaustion, network failure) is re-raised immediately.
+
+    A safe fallback quiz is always returned when the API key is missing,
+    the SDK import fails, or the model response cannot be parsed.
+    """
     api_key = os.getenv("GOOGLE_API_KEY", "").strip()
     model_name = os.getenv("GOOGLE_GENAI_MODEL", "gemini-2.0-flash")
     fallback_model_name = os.getenv("GOOGLE_GENAI_FALLBACK_MODEL", "models/gemini-2.5-flash-lite").strip()
@@ -199,8 +247,6 @@ def generate_quiz_from_transcript(transcript_text: str, topic_hint: str, descrip
             error_message="google-genai SDK import failed.",
         )
 
-    # Limit transcript length to stay within the model's context window and
-    # reduce token cost; 12 000 characters cover roughly 15 minutes of speech.
     truncated_transcript = transcript_text[:12000]
     prompt = (
         "Based on the following transcript, generate a quiz in valid JSON format.\n\n"
@@ -227,8 +273,6 @@ def generate_quiz_from_transcript(transcript_text: str, topic_hint: str, descrip
 
     try:
         client = genai.Client(api_key=api_key)
-        # Try the primary model first; if it is unavailable (NOT_FOUND), advance
-        # to the fallback model. Any other error (quota, network …) is re-raised.
         models_to_try = [model_name]
         if fallback_model_name and fallback_model_name not in models_to_try:
             models_to_try.append(fallback_model_name)

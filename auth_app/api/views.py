@@ -1,3 +1,5 @@
+"""API views for registration, login, refresh, and logout flows."""
+
 import logging
 
 from rest_framework import status
@@ -32,9 +34,12 @@ logger = logging.getLogger(__name__)
 
 
 class RegistrationView(APIView):
+    """Create new user accounts for anonymous clients."""
+
     permission_classes = [AllowAny]
 
     def post(self, request):
+        """Register a new user unless the caller is already authenticated."""
         if request.user.is_authenticated:
             return Response(
                 {"error": "Authenticated users cannot create a new account."},
@@ -53,10 +58,12 @@ class RegistrationView(APIView):
 
 
 class CookieTokenObtainPairView(TokenObtainPairView):
+    """Authenticate a user and store JWT tokens in HttpOnly cookies."""
 
     serializer_class = CustomTokenObtainPairSerializer
 
     def post(self, request, *args, **kwargs):
+        """Issue token pair and return basic user profile information."""
         serialiser = self.get_serializer(data=request.data)
         serialiser.is_valid(raise_exception=True)
 
@@ -84,7 +91,16 @@ class CookieTokenObtainPairView(TokenObtainPairView):
 
 
 class CookieTokenRefreshView(TokenRefreshView):
+    """Refresh access token from refresh-token cookie with revocation checks."""
+
     def post(self, request, *args, **kwargs):
+        """Validate refresh cookie and rotate access token cookie.
+
+        Before delegating to simplejwt's built-in validation, the refresh
+        token's JTI is checked against the local revocation table. This
+        ensures that tokens revoked at logout are rejected immediately,
+        without relying solely on the simplejwt blacklist mechanism.
+        """
         refresh_token = request.COOKIES.get("refresh_token")
         if not refresh_token:
             return Response(
@@ -100,8 +116,6 @@ class CookieTokenRefreshView(TokenRefreshView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Reject tokens that were explicitly revoked at logout before
-        # simplejwt’s own blacklist mechanism would catch them.
         refresh_jti = refresh_obj.get("jti")
         if (
             refresh_jti
@@ -131,26 +145,30 @@ class CookieTokenRefreshView(TokenRefreshView):
 
 
 class LogoutView(APIView):
+    """Revoke tokens and clear authentication cookies."""
+
     permission_classes = [AllowAny]
 
     def post(self, request):
+        """Persist token revocation state and return a logout confirmation.
+
+        Both access and refresh tokens are written to the local revocation
+        table for fast synchronous rejection in subsequent requests. The
+        refresh token is additionally blacklisted through simplejwt so that
+        its middleware also rejects it even when the custom check is bypassed.
+        Errors from the simplejwt blacklist step are silently ignored because
+        the token may already be present or may have expired.
+        """
         source_ip = request.META.get("REMOTE_ADDR")
         access_token = request.COOKIES.get("access_token")
         refresh_token = request.COOKIES.get("refresh_token")
 
-        # Store both tokens in our own revocation table for fast synchronous
-        # checks (e.g. the refresh endpoint) without relying solely on the
-        # simplejwt blacklist.
         revoked_access = revoke_token(access_token, AccessToken, source_ip)
         revoked_refresh = revoke_token(refresh_token, RefreshToken, source_ip)
-        # Additionally blacklist through simplejwt so standard simplejwt
-        # middleware also rejects the token even if our custom check is skipped.
         if refresh_token:
             try:
                 RefreshToken(refresh_token).blacklist()
             except Exception:
-                # Blacklist table may already contain this token or token can
-                # be invalid.
                 pass
 
         logger.info(

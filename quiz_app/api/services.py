@@ -1,3 +1,5 @@
+"""Services for downloading audio and transcribing it with Whisper."""
+
 import os
 import shutil
 import subprocess
@@ -11,16 +13,25 @@ from yt_dlp import YoutubeDL
 
 
 class AudioDownloadError(Exception):
+    """Raised when YouTube audio download or conversion fails."""
+
     pass
 
 
 class TranscriptionError(Exception):
+    """Raised when audio transcription cannot be completed."""
+
     pass
 
 
 def _resolve_ffmpeg_location():
-    # If explicitly configured, validate and return a usable ffmpeg location.
-    # If not configured, return None so yt_dlp can auto-detect from PATH.
+    """Return a usable ffmpeg location or None when auto-detection should be used.
+
+    If the FFMPEG_LOCATION environment variable is set, the configured path
+    is validated by searching for both ffmpeg and ffprobe binaries before
+    returning it. If the variable is unset, or no valid binaries are found,
+    None is returned so yt-dlp can auto-detect ffmpeg from PATH.
+    """
     configured = os.getenv("FFMPEG_LOCATION")
     if not configured:
         return None
@@ -44,6 +55,17 @@ def _resolve_ffmpeg_location():
 
 
 def download_youtube_audio(video_url):
+    """Download and convert a YouTube video's audio track to MP3.
+
+    A metadata-only first pass is performed to obtain the video ID so that
+    any stale files from a previous download of the same video can be removed
+    before the actual download begins.
+
+    After downloading, the final MP3 path is resolved by inspecting the
+    yt-dlp info dict in three locations in order of reliability:
+    ``requested_downloads[0]["filepath"]``, ``info["filepath"]``, and
+    finally by reconstructing the expected path from the download template.
+    """
     media_root = Path(settings.BASE_DIR) / "media"
     download_dir = media_root / "quiz_audio"
     download_dir.mkdir(parents=True, exist_ok=True)
@@ -71,7 +93,6 @@ def download_youtube_audio(video_url):
         ydl_opts["ffmpeg_location"] = ffmpeg_location
 
     try:
-        # First pass: get metadata and proactively remove stale files for same video id.
         with YoutubeDL({**ydl_opts, "skip_download": True}) as ydl:
             meta = ydl.extract_info(video_url, download=False)
             video_id = meta.get("id", "")
@@ -83,8 +104,6 @@ def download_youtube_audio(video_url):
 
         with YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(video_url, download=True)
-            # yt-dlp exposes the post-processed file path in different keys
-            # depending on version; try each location in order of reliability.
             final_filepath = None
             requested_downloads = info.get("requested_downloads") or []
             if requested_downloads and isinstance(requested_downloads[0], dict):
@@ -94,7 +113,6 @@ def download_youtube_audio(video_url):
                 final_filepath = info.get("filepath")
 
             if not final_filepath:
-                # Last resort: reconstruct the expected path from the download template.
                 prepared = Path(ydl.prepare_filename(info))
                 final_filepath = str(prepared.with_suffix(".mp3"))
 
@@ -126,6 +144,11 @@ def download_youtube_audio(video_url):
 
 
 def delete_downloaded_audio(audio_file_name):
+    """Delete a downloaded audio file from the media directory.
+
+    Does nothing when ``audio_file_name`` is empty or None, or when the
+    resolved path does not exist or is not a regular file.
+    """
     if not audio_file_name:
         return
 
@@ -135,6 +158,20 @@ def delete_downloaded_audio(audio_file_name):
 
 
 def _build_audio_clip(audio_path, max_seconds):
+    """Create a temporary clipped audio file when a time limit is configured.
+
+    A UUID-prefixed filename is used to avoid name collisions when multiple
+    clips are created concurrently. The FFmpeg command is built with:
+
+    - ``-y``: overwrite the output file without prompting
+    - ``-t``: stop writing after ``max_seconds`` seconds
+    - ``-vn``: drop any video stream present in the source file
+    - ``-acodec copy``: copy audio without re-encoding (fast, lossless)
+
+    When FFmpeg is unavailable or clipping fails, the original audio path is
+    returned unchanged so the caller can still attempt full-file transcription.
+    Returns a tuple of ``(path, is_temporary)``.
+    """
     if max_seconds <= 0:
         return audio_path, False
 
@@ -148,14 +185,9 @@ def _build_audio_clip(audio_path, max_seconds):
         if not ffmpeg_exe.exists():
             return audio_path, False
 
-    # Unique prefix avoids name collisions when multiple clips are created concurrently.
     clip_name = f"clip_{uuid4().hex}_{audio_path.name}"
     clip_path = audio_path.parent / clip_name
 
-    # -y: overwrite output without prompting;
-    # -t: stop writing after max_seconds;
-    # -vn: drop any video stream;
-    # -acodec copy: copy the audio stream without re-encoding (fast, lossless).
     command = [
         str(ffmpeg_exe),
         "-y",
@@ -179,20 +211,33 @@ def _build_audio_clip(audio_path, max_seconds):
     except Exception:
         if clip_path.exists():
             clip_path.unlink(missing_ok=True)
-        # Clipping failed — fall back to transcribing the full audio file.
         return audio_path, False
 
     return clip_path, True
 
 
-# Cache up to two loaded models to avoid reloading on every request
-# (the configured model plus one potential fallback / temporary switch).
 @lru_cache(maxsize=2)
 def _load_model(model_name):
+    """Load and cache a Whisper model by name.
+
+    At most two models are kept in memory at once, covering the configured
+    model and one potential fallback or temporary switch without reloading
+    on every request.
+    """
     return whisper.load_model(model_name)
 
 
 def transcribe_audio_file(audio_file_name, max_seconds=0):
+    """Transcribe an audio file and return normalized transcript payload data.
+
+    When ``max_seconds`` is positive, a temporary clipped file is created
+    and transcribed instead of the full track; the clip is deleted once
+    transcription finishes.
+
+    ``fp16=False`` is always passed to Whisper because half-precision
+    inference requires a GPU. On standard CPU hardware, fp32 must be used
+    to avoid numerical errors.
+    """
     audio_path = Path(settings.BASE_DIR) / "media" / audio_file_name
     if not audio_path.exists():
         raise TranscriptionError(f"Audio file not found: {audio_file_name}")
@@ -205,8 +250,6 @@ def transcribe_audio_file(audio_file_name, max_seconds=0):
 
     try:
         model = _load_model(model_name)
-        # fp16=False: half-precision inference requires a GPU.
-        # CPU inference must use fp32 to avoid errors on most hardware.
         result = model.transcribe(str(transcription_input_path), fp16=False)
     except Exception as exc:
         raise TranscriptionError(

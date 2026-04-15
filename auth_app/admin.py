@@ -1,3 +1,3 @@
-from django.contrib import admin
+"""Django admin registration module for the auth app."""
 
-# Register your models here.
+from django.contrib import admin
