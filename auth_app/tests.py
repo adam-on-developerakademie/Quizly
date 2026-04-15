@@ -29,7 +29,7 @@ class AuthCookieFlowTests(APITestCase):
 			format="json",
 		)
 
-	def test_login_hello_logout_then_hello_is_forbidden(self):
+	def test_login_protected_endpoint_logout_then_access_is_forbidden(self):
 		login_response = self._login()
 		self.assertEqual(login_response.status_code, status.HTTP_200_OK)
 		self.assertEqual(login_response.data["detail"], "Login successfully!")
@@ -39,16 +39,8 @@ class AuthCookieFlowTests(APITestCase):
 		self.assertIn("access_token", login_response.cookies)
 		self.assertIn("refresh_token", login_response.cookies)
 
-		hello_response = self.client.get(reverse("hello"))
-		self.assertEqual(hello_response.status_code, status.HTTP_200_OK)
-		self.assertIn("access_token_info", hello_response.data)
-		self.assertIn("refresh_token_info", hello_response.data)
-		self.assertIsNotNone(hello_response.data["access_token_info"]["issued_at"])
-		self.assertIsNotNone(hello_response.data["access_token_info"]["expires_at"])
-		self.assertGreaterEqual(hello_response.data["access_token_info"]["remaining_seconds"], 0)
-		self.assertIsNotNone(hello_response.data["refresh_token_info"]["issued_at"])
-		self.assertIsNotNone(hello_response.data["refresh_token_info"]["expires_at"])
-		self.assertGreaterEqual(hello_response.data["refresh_token_info"]["remaining_seconds"], 0)
+		protected_response = self.client.get(reverse("quiz-create"))
+		self.assertEqual(protected_response.status_code, status.HTTP_200_OK)
 
 		logout_response = self.client.post(reverse("logout"))
 		self.assertEqual(logout_response.status_code, status.HTTP_200_OK)
@@ -65,8 +57,8 @@ class AuthCookieFlowTests(APITestCase):
 		self.assertIn("access", revoked_types)
 		self.assertIn("refresh", revoked_types)
 
-		post_logout_hello = self.client.get(reverse("hello"))
-		self.assertEqual(post_logout_hello.status_code, status.HTTP_401_UNAUTHORIZED)
+		post_logout_protected = self.client.get(reverse("quiz-create"))
+		self.assertEqual(post_logout_protected.status_code, status.HTTP_401_UNAUTHORIZED)
 
 	def test_refresh_token_cannot_be_reused_after_logout(self):
 		login_response = self._login()
@@ -97,8 +89,8 @@ class AuthCookieFlowTests(APITestCase):
 
 	def test_tampered_access_cookie_is_rejected(self):
 		self.client.cookies["access_token"] = "tampered.invalid.jwt"
-		hello_response = self.client.get(reverse("hello"))
-		self.assertEqual(hello_response.status_code, status.HTTP_401_UNAUTHORIZED)
+		protected_response = self.client.get(reverse("quiz-create"))
+		self.assertEqual(protected_response.status_code, status.HTTP_401_UNAUTHORIZED)
 
 	def test_tampered_refresh_cookie_is_rejected(self):
 		self.client.cookies["refresh_token"] = "tampered.invalid.jwt"

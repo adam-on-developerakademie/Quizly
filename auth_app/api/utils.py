@@ -16,48 +16,6 @@ def exp_to_datetime(exp):
     return datetime.fromtimestamp(int(exp), tz=timezone.utc)
 
 
-def timestamp_to_datetime(value):
-    """Convert a numeric timestamp to UTC datetime."""
-    if value is None:
-        return None
-    return datetime.fromtimestamp(int(value), tz=timezone.utc)
-
-
-def get_token_time_info(raw_token, token_class):
-    """Return normalized timing metadata for a JWT string."""
-    if not raw_token:
-        return {
-            "issued_at": None,
-            "expires_at": None,
-            "remaining_seconds": None,
-            "is_valid": False,
-        }
-
-    try:
-        token = token_class(raw_token)
-    except TokenError:
-        return {
-            "issued_at": None,
-            "expires_at": None,
-            "remaining_seconds": None,
-            "is_valid": False,
-        }
-
-    issued_at_dt = timestamp_to_datetime(token.get("iat"))
-    expires_at_dt = timestamp_to_datetime(token.get("exp"))
-    now = datetime.now(timezone.utc)
-    remaining_seconds = None
-    if expires_at_dt is not None:
-        remaining_seconds = max(int((expires_at_dt - now).total_seconds()), 0)
-
-    return {
-        "issued_at": issued_at_dt.isoformat() if issued_at_dt else None,
-        "expires_at": expires_at_dt.isoformat() if expires_at_dt else None,
-        "remaining_seconds": remaining_seconds,
-        "is_valid": True,
-    }
-
-
 def revoke_token(raw_token, token_class, source_ip):
     """Persist token revocation and return token identity info if available."""
     if not raw_token:

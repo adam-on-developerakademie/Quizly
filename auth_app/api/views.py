@@ -3,7 +3,6 @@ import logging
 from rest_framework import status
 from rest_framework.permissions import (
     AllowAny,
-    IsAuthenticated,
 )
 from rest_framework.response import Response
 from rest_framework_simplejwt.exceptions import TokenError
@@ -24,7 +23,6 @@ from .serializers import (
 )
 from .utils import (
     clear_auth_cookies,
-    get_token_time_info,
     revoke_token,
     set_auth_cookies,
 )
@@ -52,30 +50,6 @@ class RegistrationView(APIView):
                 status=status.HTTP_201_CREATED,
             )
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-
-class HelloWorld(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request):
-        access_token = request.COOKIES.get("access_token")
-        refresh_token = request.COOKIES.get("refresh_token")
-
-        return Response(
-            {
-                "message": "Hello {}".format(request.user.username),
-                "email": request.user.email,
-                "user_id": request.user.pk,
-                "access_token_info": get_token_time_info(
-                    access_token,
-                    AccessToken,
-                ),
-                "refresh_token_info": get_token_time_info(
-                    refresh_token,
-                    RefreshToken,
-                ),
-            }
-        )
 
 
 class CookieTokenObtainPairView(TokenObtainPairView):
